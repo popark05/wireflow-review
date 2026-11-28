@@ -58,3 +58,15 @@ test("rejects a graph without a screen node", async () => {
   assert.equal(response.statusCode, 422);
   await app.close();
 });
+
+test("rejects unknown fields instead of silently dropping them", async () => {
+  const app = buildApp();
+  const typo = await app.inject({
+    method: "POST", url: "/v1/flows/import",
+    payload: { ...validFlow, nodes: [{ nodeId: "home", type: "screen", title: "Home", screenID: "typo" }], edges: [] }
+  });
+  assert.equal(typo.statusCode, 400);
+  const extraTopLevel = await app.inject({ method: "POST", url: "/v1/flows/import", payload: { ...validFlow, tasks: [] } });
+  assert.equal(extraTopLevel.statusCode, 400);
+  await app.close();
+});
