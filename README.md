@@ -25,9 +25,18 @@ The original XU Wireflow Review skill and release assets are maintained at [Jeon
 - Fastify API for importing, retrieving, submitting, and reviewing wireflows.
 - Domain validation for node and edge identity and graph references.
 - In-memory repository for local development and tests.
-- Optional PostgreSQL persistence when `DATABASE_URL` is configured. The service creates its required tables and indexes at startup.
+- Optional PostgreSQL persistence when `DATABASE_URL` is configured.
+- Immutable revision snapshots, optimistic concurrency via `expectedVersion`, and revision lookup/list APIs.
 
-The current API is a backend foundation; a visual authoring/editor UI and immutable revision history are not yet implemented.
+Revision API:
+- `POST /v1/flows/:flowId/revisions` creates the next revision. The request includes `expectedVersion`, `title`, `nodes`, `edges`, and optional `description`.
+- `GET /v1/flows/:flowId/revisions` lists revision metadata and snapshots.
+- `GET /v1/flows/:flowId/revisions/:version` retrieves one immutable snapshot.
+- Creating a revision resets review status to `draft`; it is rejected while the flow is `in_review` or when `expectedVersion` is stale.
+
+PostgreSQL stores snapshots in `wireflow_revisions` with a unique `(flow_id, version)` constraint. Existing flows are backfilled with their current document as the initial available revision at startup. This cannot reconstruct historical versions that predate the revision table.
+
+A visual authoring/editor UI and Reverse Screen import/compare integration are not yet implemented.
 
 ## License
 To be decided before public distribution.
