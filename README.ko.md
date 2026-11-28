@@ -27,6 +27,7 @@ Wireflow Review는 기획 및 흐름 검토 도구입니다. 런타임 탐색 �
 - 로컬 개발 및 테스트용 In-memory Repository
 - `DATABASE_URL` 설정 시 PostgreSQL 영속성 지원
 - 불변 Revision 스냅샷, `expectedVersion` 기반 낙관적 동시성 제어, Revision 조회 API
+- `/editor`에서 사용할 수 있는 브라우저 기반 시각적 Wireflow 편집기: 노드 이동·편집, Screen/Decision/External 단계 추가, 전이 연결, Flow 및 Revision 저장
 
 Revision API:
 - `POST /v1/flows/:flowId/revisions`: 다음 버전을 생성합니다. 요청에 `expectedVersion`, `title`, `nodes`, `edges` 및 선택적 `description`을 전달합니다.
@@ -36,7 +37,7 @@ Revision API:
 
 PostgreSQL은 `wireflow_revisions` 테이블에 스냅샷을 저장하며 `(flow_id, version)`에 유일성 제약을 적용합니다. 기존 데이터는 서버 시작 시 현재 문서를 최초 조회 가능한 Revision으로 백필합니다. Revision 테이블 도입 이전의 과거 버전까지 복원할 수는 없습니다.
 
-시각적 Wireflow 편집기 UI와 Reverse Screen 가져오기/비교 연동은 아직 구현되지 않았습니다.
+편집기 1차 버전에서는 Flow ID로 기존 Flow를 열고, 그래프를 구성·배치한 뒤 불변 Revision으로 저장할 수 있습니다. Reverse Screen 가져오기/비교 연동은 아직 구현되지 않았습니다.
 
 ## 라이선스
 외부 공개 및 배포 전에 결정합니다.

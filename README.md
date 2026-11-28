@@ -27,6 +27,7 @@ The original XU Wireflow Review skill and release assets are maintained at [Jeon
 - In-memory repository for local development and tests.
 - Optional PostgreSQL persistence when `DATABASE_URL` is configured.
 - Immutable revision snapshots, optimistic concurrency via `expectedVersion`, and revision lookup/list APIs.
+- Browser based visual wireflow editor at `/editor`, with draggable nodes, editable screen/decision/external steps, labeled connections, and persistence through imports/revisions.
 
 Revision API:
 - `POST /v1/flows/:flowId/revisions` creates the next revision. The request includes `expectedVersion`, `title`, `nodes`, `edges`, and optional `description`.
@@ -36,7 +37,7 @@ Revision API:
 
 PostgreSQL stores snapshots in `wireflow_revisions` with a unique `(flow_id, version)` constraint. Existing flows are backfilled with their current document as the initial available revision at startup. This cannot reconstruct historical versions that predate the revision table.
 
-A visual authoring/editor UI and Reverse Screen import/compare integration are not yet implemented.
+The editor is a focused first version: load an existing flow by ID, compose and arrange its graph, and save new immutable revisions. Reverse Screen import/compare integration is not yet implemented.
 
 ## License
 To be decided before public distribution.

@@ -1,5 +1,6 @@
 import Fastify,{type FastifyInstance} from "fastify";
 import { validateWireflow, WireflowStore, type WireflowInput, type WireflowRepository } from "../domain/wireflow.js";
+import { editorHtml } from "./editor.js";
 const importSchema={type:"object",additionalProperties:false,required:["applicationId","title","nodes","edges"],properties:{
  applicationId:{type:"string",minLength:1,maxLength:200},title:{type:"string",minLength:1,maxLength:240},description:{type:"string",maxLength:4000},
  nodes:{type:"array",minItems:1,items:{type:"object",additionalProperties:false,required:["nodeId","type","title"],properties:{
@@ -18,6 +19,7 @@ type RevisionBody = { expectedVersion: number; title: string; description?: stri
 export function buildApp(store: WireflowRepository = new WireflowStore()): FastifyInstance {
  const app=Fastify({logger:true});
  app.get("/health",async()=>({status:"ok",service:"wireflow-review"}));
+ app.get("/editor",async(_req,reply)=>reply.type("text/html; charset=utf-8").send(editorHtml));
  app.post<{Body:WireflowInput}>("/v1/flows/import",{schema:{body:importSchema}},async(req,reply)=>{
   const issues=validateWireflow(req.body);if(issues.length)return reply.code(422).send({error:"invalid_wireflow",issues});
   return reply.code(201).send(await store.import(req.body));
