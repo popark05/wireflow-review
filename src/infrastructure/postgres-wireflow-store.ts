@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import type {
-  FlowReviewRecord, ReviewStatus, WireflowDocument, WireflowInput, WireflowRepository
+import {
+  createWireflowDocument, toFlowModel,
+  type FlowModelV1, type FlowReviewRecord, type ReviewStatus, type WireflowDocument, type WireflowInput, type WireflowRepository
 } from "../domain/wireflow.js";
 
 export class PostgresWireflowStore implements WireflowRepository {
@@ -30,15 +31,14 @@ export class PostgresWireflowStore implements WireflowRepository {
       );
       CREATE INDEX IF NOT EXISTS wireflow_reviews_flow_reviewed_idx
         ON wireflow_reviews (flow_id, reviewed_at DESC);
+      -- Reviews are bound to the flow version they decided on (export publishes that approval).
+      ALTER TABLE wireflow_reviews ADD COLUMN IF NOT EXISTS flow_version INTEGER NOT NULL DEFAULT 1 CHECK (flow_version > 0);
     `);
   }
 
   async import(input: WireflowInput): Promise<WireflowDocument> {
-    const now = new Date().toISOString();
-    const flow: WireflowDocument = {
-      flowId: randomUUID(), version: 1, ...input,
-      reviewStatus: "draft", createdAt: now, updatedAt: now
-    };
+    const flow = createWireflowDocument(input);
+    const now = flow.createdAt;
     await this.pool.query(
       `INSERT INTO wireflow_flows
         (flow_id, application_id, version, review_status, document, created_at, updated_at)
@@ -82,8 +82,8 @@ export class PostgresWireflowStore implements WireflowRepository {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const current = await client.query<{ review_status: ReviewStatus }>(
-        "SELECT review_status FROM wireflow_flows WHERE flow_id = $1 FOR UPDATE",
+      const current = await client.query<{ review_status: ReviewStatus; version: number }>(
+        "SELECT review_status, version FROM wireflow_flows WHERE flow_id = $1 FOR UPDATE",
         [id]
       );
       if (current.rows[0]?.review_status !== "in_review") {
@@ -93,15 +93,15 @@ export class PostgresWireflowStore implements WireflowRepository {
 
       const reviewedAt = new Date().toISOString();
       const record: FlowReviewRecord = {
-        reviewId: randomUUID(), flowId: id, reviewerId, decision,
+        reviewId: randomUUID(), flowId: id, flowVersion: current.rows[0].version, reviewerId, decision,
         ...(comment === undefined ? {} : { comment }),
         reviewedAt
       };
       await client.query(
         `INSERT INTO wireflow_reviews
-          (review_id, flow_id, reviewer_id, decision, comment, reviewed_at)
-         VALUES ($1, $2, $3, $4, $5, $6::timestamptz)`,
-        [record.reviewId, id, reviewerId, decision, comment ?? null, reviewedAt]
+          (review_id, flow_id, flow_version, reviewer_id, decision, comment, reviewed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)`,
+        [record.reviewId, id, record.flowVersion, reviewerId, decision, comment ?? null, reviewedAt]
       );
       await client.query(
         `UPDATE wireflow_flows
@@ -122,5 +122,22 @@ export class PostgresWireflowStore implements WireflowRepository {
     } finally {
       client.release();
     }
+  }
+
+  async export(id: string): Promise<FlowModelV1 | undefined> {
+    const flow = await this.get(id);
+    if (!flow || flow.reviewStatus !== "approved") return undefined;
+    const result = await this.pool.query<{ review_id: string; reviewer_id: string; reviewed_at: Date | string }>(
+      `SELECT review_id, reviewer_id, reviewed_at FROM wireflow_reviews
+       WHERE flow_id = $1 AND flow_version = $2 AND decision = 'approved'
+       ORDER BY reviewed_at DESC LIMIT 1`,
+      [id, flow.version]
+    );
+    const row = result.rows[0];
+    if (!row) return undefined;
+    return toFlowModel(flow, {
+      reviewId: row.review_id, flowId: id, flowVersion: flow.version, reviewerId: row.reviewer_id,
+      decision: "approved", reviewedAt: new Date(row.reviewed_at).toISOString()
+    });
   }
 }

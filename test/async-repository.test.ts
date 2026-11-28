@@ -11,7 +11,8 @@ test("API awaits asynchronous wireflow repository operations", async () => {
     async submit(id) { return memory.submit(id); },
     async review(id, reviewerId, decision, comment) {
       return memory.review(id, reviewerId, decision, comment);
-    }
+    },
+    async export(id) { return memory.export(id); }
   };
   const app = buildApp(repository);
   const imported = await app.inject({
@@ -43,5 +44,9 @@ test("API awaits asynchronous wireflow repository operations", async () => {
 
   const fetched = await app.inject({ method: "GET", url: `/v1/flows/${flowId}` });
   assert.equal(fetched.json().reviewStatus, "approved");
+
+  const exported = await app.inject({ method: "GET", url: `/v1/flows/${flowId}/export` });
+  assert.equal(exported.statusCode, 200);
+  assert.equal(exported.json().approval.reviewId, reviewed.json().reviewId);
   await app.close();
 });

@@ -21,13 +21,28 @@ Wireflow Review는 기획 및 흐름 검토 도구입니다. 런타임 탐색 �
 ## 원본 프로젝트
 기존 XU Wireflow Review 스킬 및 릴리스 자료는 [JeongK7998/wireflow-review](https://github.com/JeongK7998/wireflow-review)에서 확인할 수 있습니다. 이 저장소는 popark05 도구 체인의 독립 개발 저장소이며, 원본 소스와 릴리스 파일 전체를 복제한 상태는 아닙니다.
 
-## 현재 구현 상태
-- Wireflow 가져오기, 조회, 제출, 리뷰를 위한 Fastify API
-- Node/Edge 식별자 및 그래프 참조 검증
-- 로컬 개발 및 테스트용 In-memory Repository
-- `DATABASE_URL` 설정 시 PostgreSQL 영속성 지원. 서버 시작 시 필요한 테이블과 인덱스를 생성합니다.
+## 진행 상태
+Wireflow 그래프를 가져와 검증하고, 리뷰 제출과 승인/변경 요청을 기록하며, 승인된 Flow를 `flow-model` 계약(1.1)으로 내보내는 API가 구현되어 있습니다.
 
-현재 구현은 백엔드 기반 기능입니다. 시각적 Wireflow 편집기 UI와 불변 Revision 이력은 아직 구현되지 않았습니다.
+- 계약: [`contracts/flow-model.v1.schema.json`](contracts/flow-model.v1.schema.json)
+- 설계 결정: [`docs/architecture/flow-contract.md`](docs/architecture/flow-contract.md)
+- 저장소: 기본은 in-memory이며, `DATABASE_URL`을 설정하면 PostgreSQL을 사용합니다(시작 시 테이블과 인덱스 생성).
+
+| Method | Path | 용도 |
+|---|---|---|
+| POST | `/v1/flows/import` | Flow 그래프 가져오기 (`origin`, `kind`, `discoveryRef` 선택) |
+| GET | `/v1/flows/{flowId}` | 현재 Flow 조회 |
+| POST | `/v1/flows/{flowId}/submissions` | 리뷰 제출 |
+| POST | `/v1/flows/{flowId}/reviews` | 승인 또는 변경 요청 |
+| GET | `/v1/flows/{flowId}/export` | 승인된 Flow 내보내기 (`flow-model`) |
+
+```bash
+npm install
+npm run typecheck && npm test && npm run build
+npm run dev   # 기본 포트 3002
+```
+
+시각적 Wireflow 편집기 UI와 불변 Revision 이력은 아직 구현되지 않았습니다.
 
 ## 라이선스
 외부 공개 및 배포 전에 결정합니다.
