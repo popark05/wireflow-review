@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import {
   validateWireflow, WireflowStore, type ReviewDecision, type WireflowInput, type WireflowRepository, type WireflowRevisionInput
 } from "../domain/wireflow.js";
+import { editorHtml } from "./editor.js";
 
 const originSchema = { type: "string", enum: ["product_requirement", "ai_suggestion", "open_question", "discovered"] } as const;
 
@@ -98,6 +99,8 @@ export function buildApp(store: WireflowRepository = new WireflowStore()): Fasti
   });
 
   app.get("/health", async () => ({ status: "ok", service: "wireflow-review" }));
+
+  app.get("/editor", async (_request, reply) => reply.type("text/html; charset=utf-8").send(editorHtml));
 
   app.post<{ Body: WireflowInput }>("/v1/flows/import", { schema: { body: importSchema } }, async (request, reply) => {
     const issues = validateWireflow(request.body);

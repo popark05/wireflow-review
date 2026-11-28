@@ -47,7 +47,7 @@ npm run typecheck && npm test && npm run build
 npm run dev   # 기본 포트 3002
 ```
 
-시각적 Wireflow 편집기 UI는 아직 구현되지 않았습니다.
+`/editor`에서 브라우저 기반 시각 편집기를 제공합니다. Flow ID로 열고, 화면·분기·외부 단계를 추가하고, 드래그로 배치(위치는 노드 metadata에 저장)하며, 라벨과 트리거로 연결한 뒤 저장합니다. 처음 저장하면 import, 이후 저장은 불변 Revision을 만듭니다. 가져온 노드의 Reverse Screen 참조와 origin은 읽기 전용으로 표시합니다.
 
 ## 라이선스
 외부 공개 및 배포 전에 결정합니다.

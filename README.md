@@ -47,7 +47,7 @@ npm run typecheck && npm test && npm run build
 npm run dev   # PORT defaults to 3002
 ```
 
-A visual authoring/editor UI is not yet implemented.
+A browser-based visual editor is served at `/editor`: open a flow by ID, add screen/decision/external steps, drag to arrange (positions are kept in node metadata), connect steps with labels and triggers, and save — the first save imports, later saves create immutable revisions. Reverse Screen references and origins of imported nodes are shown read-only.
 
 ## License
 To be decided before public distribution.
