@@ -3,7 +3,7 @@ import test from "node:test";
 import { WireflowStore, type WireflowRepository } from "../src/domain/wireflow.js";
 import { buildApp } from "../src/server/app.js";
 
-test("API awaits asynchronous wireflow repository operations", async () => {
+test("API awaits asynchronous wireflow repository operations including revisions", async () => {
   const memory = new WireflowStore();
   const repository: WireflowRepository = {
     async import(input) { return memory.import(input); },
@@ -11,32 +11,40 @@ test("API awaits asynchronous wireflow repository operations", async () => {
     async submit(id) { return memory.submit(id); },
     async review(id, reviewerId, decision, comment) {
       return memory.review(id, reviewerId, decision, comment);
-    }
+    },
+    async createRevision(id, input, expectedVersion) {
+      return memory.createRevision(id, input, expectedVersion);
+    },
+    async listRevisions(id) { return memory.listRevisions(id); },
+    async getRevision(id, version) { return memory.getRevision(id, version); }
   };
   const app = buildApp(repository);
   const imported = await app.inject({
-    method: "POST",
-    url: "/v1/flows/import",
+    method: "POST", url: "/v1/flows/import",
     payload: {
-      applicationId: "demo-app",
-      title: "Async repository flow",
-      nodes: [{ nodeId: "home", type: "screen", title: "Home" }],
-      edges: []
+      applicationId: "demo-app", title: "Async repository flow",
+      nodes: [{ nodeId: "home", type: "screen", title: "Home" }], edges: []
     }
   });
   assert.equal(imported.statusCode, 201);
   const flowId = imported.json().flowId;
 
-  const submitted = await app.inject({
-    method: "POST",
-    url: `/v1/flows/${flowId}/submissions`
+  const revision = await app.inject({
+    method: "POST", url: `/v1/flows/${flowId}/revisions`,
+    payload: {
+      expectedVersion: 1, title: "Async repository flow v2",
+      nodes: [{ nodeId: "home", type: "screen", title: "Home" }], edges: []
+    }
   });
+  assert.equal(revision.statusCode, 201);
+  assert.equal(revision.json().version, 2);
+
+  const submitted = await app.inject({ method: "POST", url: `/v1/flows/${flowId}/submissions` });
   assert.equal(submitted.statusCode, 200);
   assert.equal(submitted.json().reviewStatus, "in_review");
 
   const reviewed = await app.inject({
-    method: "POST",
-    url: `/v1/flows/${flowId}/reviews`,
+    method: "POST", url: `/v1/flows/${flowId}/reviews`,
     payload: { reviewerId: "reviewer", decision: "approved" }
   });
   assert.equal(reviewed.statusCode, 201);
