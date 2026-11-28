@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { Pool } from "pg";
-import type {
-  FlowRevision, FlowReviewRecord, ReviewStatus, WireflowDocument, WireflowInput, WireflowRepository
+import {
+  createRevisionDocument, createWireflowDocument, toFlowModel,
+  type FlowModelV1, type FlowRevision, type FlowReviewRecord, type WireflowRevisionInput, type ReviewStatus, type WireflowDocument, type WireflowInput, type WireflowRepository
 } from "../domain/wireflow.js";
 
 export class PostgresWireflowStore implements WireflowRepository {
@@ -30,6 +31,8 @@ export class PostgresWireflowStore implements WireflowRepository {
       );
       CREATE INDEX IF NOT EXISTS wireflow_reviews_flow_reviewed_idx
         ON wireflow_reviews (flow_id, reviewed_at DESC);
+      -- Reviews are bound to the flow version they decided on (export publishes that approval).
+      ALTER TABLE wireflow_reviews ADD COLUMN IF NOT EXISTS flow_version INTEGER NOT NULL DEFAULT 1 CHECK (flow_version > 0);
       CREATE TABLE IF NOT EXISTS wireflow_revisions (
         revision_id UUID PRIMARY KEY,
         flow_id UUID NOT NULL REFERENCES wireflow_flows(flow_id) ON DELETE CASCADE,
@@ -54,11 +57,8 @@ export class PostgresWireflowStore implements WireflowRepository {
   }
 
   async import(input: WireflowInput): Promise<WireflowDocument> {
-    const now = new Date().toISOString();
-    const flow: WireflowDocument = {
-      flowId: randomUUID(), version: 1, ...input,
-      reviewStatus: "draft", createdAt: now, updatedAt: now
-    };
+    const flow = createWireflowDocument(input);
+    const now = flow.createdAt;
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -85,7 +85,8 @@ export class PostgresWireflowStore implements WireflowRepository {
 
   async get(id: string): Promise<WireflowDocument | undefined> {
     const result = await this.pool.query<{ document: WireflowDocument }>(
-      "SELECT document FROM wireflow_flows WHERE flow_id = $1", [id]
+      "SELECT document FROM wireflow_flows WHERE flow_id = $1",
+      [id]
     );
     return result.rows[0]?.document;
   }
@@ -101,7 +102,8 @@ export class PostgresWireflowStore implements WireflowRepository {
            ),
            updated_at = $2::timestamptz
        WHERE flow_id = $1 AND review_status IN ('draft', 'changes_requested')
-       RETURNING document`, [id, updatedAt]
+       RETURNING document`,
+      [id, updatedAt]
     );
     return result.rows[0]?.document;
   }
@@ -115,23 +117,26 @@ export class PostgresWireflowStore implements WireflowRepository {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const current = await client.query<{ review_status: ReviewStatus }>(
-        "SELECT review_status FROM wireflow_flows WHERE flow_id = $1 FOR UPDATE", [id]
+      const current = await client.query<{ review_status: ReviewStatus; version: number }>(
+        "SELECT review_status, version FROM wireflow_flows WHERE flow_id = $1 FOR UPDATE",
+        [id]
       );
       if (current.rows[0]?.review_status !== "in_review") {
         await client.query("ROLLBACK");
         return undefined;
       }
+
       const reviewedAt = new Date().toISOString();
       const record: FlowReviewRecord = {
-        reviewId: randomUUID(), flowId: id, reviewerId, decision,
-        ...(comment === undefined ? {} : { comment }), reviewedAt
+        reviewId: randomUUID(), flowId: id, flowVersion: current.rows[0].version, reviewerId, decision,
+        ...(comment === undefined ? {} : { comment }),
+        reviewedAt
       };
       await client.query(
         `INSERT INTO wireflow_reviews
-          (review_id, flow_id, reviewer_id, decision, comment, reviewed_at)
-         VALUES ($1, $2, $3, $4, $5, $6::timestamptz)`,
-        [record.reviewId, id, reviewerId, decision, comment ?? null, reviewedAt]
+          (review_id, flow_id, flow_version, reviewer_id, decision, comment, reviewed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)`,
+        [record.reviewId, id, record.flowVersion, reviewerId, decision, comment ?? null, reviewedAt]
       );
       await client.query(
         `UPDATE wireflow_flows
@@ -141,7 +146,8 @@ export class PostgresWireflowStore implements WireflowRepository {
                '{updatedAt}', to_jsonb($3::text)
              ),
              updated_at = $3::timestamptz
-         WHERE flow_id = $1`, [id, decision, reviewedAt]
+         WHERE flow_id = $1`,
+        [id, decision, reviewedAt]
       );
       await client.query("COMMIT");
       return record;
@@ -153,44 +159,50 @@ export class PostgresWireflowStore implements WireflowRepository {
     }
   }
 
-  async createRevision(
-    id: string,
-    input: Omit<WireflowInput, "applicationId">,
-    expectedVersion: number
-  ): Promise<FlowRevision | undefined> {
+  async export(id: string): Promise<FlowModelV1 | undefined> {
+    const flow = await this.get(id);
+    if (!flow || flow.reviewStatus !== "approved") return undefined;
+    const result = await this.pool.query<{ review_id: string; reviewer_id: string; reviewed_at: Date | string }>(
+      `SELECT review_id, reviewer_id, reviewed_at FROM wireflow_reviews
+       WHERE flow_id = $1 AND flow_version = $2 AND decision = 'approved'
+       ORDER BY reviewed_at DESC LIMIT 1`,
+      [id, flow.version]
+    );
+    const row = result.rows[0];
+    if (!row) return undefined;
+    return toFlowModel(flow, {
+      reviewId: row.review_id, flowId: id, flowVersion: flow.version, reviewerId: row.reviewer_id,
+      decision: "approved", reviewedAt: new Date(row.reviewed_at).toISOString()
+    });
+  }
+
+  async createRevision(id: string, input: WireflowRevisionInput, expectedVersion: number): Promise<FlowRevision | undefined> {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const currentResult = await client.query<{
-        document: WireflowDocument; version: number; review_status: ReviewStatus;
-      }>(
-        "SELECT document, version, review_status FROM wireflow_flows WHERE flow_id = $1 FOR UPDATE",
-        [id]
+      const currentResult = await client.query<{ document: WireflowDocument; version: number; review_status: ReviewStatus }>(
+        "SELECT document, version, review_status FROM wireflow_flows WHERE flow_id = $1 FOR UPDATE", [id]
       );
       const current = currentResult.rows[0];
       if (!current || current.version !== expectedVersion || current.review_status === "in_review") {
         await client.query("ROLLBACK");
         return undefined;
       }
-      const createdAt = new Date().toISOString();
-      const document: WireflowDocument = {
-        ...current.document, ...input, version: current.version + 1,
-        reviewStatus: "draft", updatedAt: createdAt
-      };
+      const document = createRevisionDocument(current.document, input);
       const revision: FlowRevision = {
-        revisionId: randomUUID(), flowId: id, version: document.version, document, createdAt
+        revisionId: randomUUID(), flowId: id, version: document.version, document, createdAt: document.updatedAt
       };
       await client.query(
         `INSERT INTO wireflow_revisions (revision_id, flow_id, version, document, created_at)
          VALUES ($1, $2, $3, $4::jsonb, $5::timestamptz)`,
-        [revision.revisionId, id, revision.version, JSON.stringify(document), createdAt]
+        [revision.revisionId, id, revision.version, JSON.stringify(document), revision.createdAt]
       );
       await client.query(
         `UPDATE wireflow_flows
          SET application_id = $2, version = $3, review_status = 'draft',
              document = $4::jsonb, updated_at = $5::timestamptz
          WHERE flow_id = $1`,
-        [id, document.applicationId, document.version, JSON.stringify(document), createdAt]
+        [id, document.applicationId, document.version, JSON.stringify(document), revision.createdAt]
       );
       await client.query("COMMIT");
       return revision;
@@ -203,29 +215,25 @@ export class PostgresWireflowStore implements WireflowRepository {
   }
 
   async listRevisions(id: string): Promise<FlowRevision[]> {
-    const result = await this.pool.query<{
-      revision_id: string; flow_id: string; version: number; document: WireflowDocument; created_at: Date;
-    }>(
+    const result = await this.pool.query<RevisionRow>(
       `SELECT revision_id, flow_id, version, document, created_at
        FROM wireflow_revisions WHERE flow_id = $1 ORDER BY version ASC`, [id]
     );
-    return result.rows.map((row) => ({
-      revisionId: row.revision_id, flowId: row.flow_id, version: row.version,
-      document: row.document, createdAt: new Date(row.created_at).toISOString()
-    }));
+    return result.rows.map(toRevision);
   }
 
   async getRevision(id: string, version: number): Promise<FlowRevision | undefined> {
-    const result = await this.pool.query<{
-      revision_id: string; flow_id: string; version: number; document: WireflowDocument; created_at: Date;
-    }>(
+    const result = await this.pool.query<RevisionRow>(
       `SELECT revision_id, flow_id, version, document, created_at
        FROM wireflow_revisions WHERE flow_id = $1 AND version = $2`, [id, version]
     );
     const row = result.rows[0];
-    return row ? {
-      revisionId: row.revision_id, flowId: row.flow_id, version: row.version,
-      document: row.document, createdAt: new Date(row.created_at).toISOString()
-    } : undefined;
+    return row ? toRevision(row) : undefined;
   }
 }
+
+interface RevisionRow { revision_id: string; flow_id: string; version: number; document: WireflowDocument; created_at: Date | string }
+const toRevision = (row: RevisionRow): FlowRevision => ({
+  revisionId: row.revision_id, flowId: row.flow_id, version: row.version,
+  document: row.document, createdAt: new Date(row.created_at).toISOString()
+});
