@@ -28,9 +28,9 @@ export function buildApp(store: WireflowRepository = new WireflowStore()): Fasti
  app.post<{Params:{flowId:string};Body:RevisionBody}>("/v1/flows/:flowId/revisions",{schema:{body:revisionSchema}},async(req,reply)=>{
   const current=await store.get(req.params.flowId);
   if(!current)return reply.code(404).send({error:"flow_not_found"});
-  const input={applicationId:current.applicationId,title:req.body.title,description:req.body.description,nodes:req.body.nodes,edges:req.body.edges};
+  const input={applicationId:current.applicationId,title:req.body.title,...(req.body.description===undefined?{}:{description:req.body.description}),nodes:req.body.nodes,edges:req.body.edges};
   const issues=validateWireflow(input);if(issues.length)return reply.code(422).send({error:"invalid_wireflow",issues});
-  const revision=await store.createRevision(req.params.flowId,{title:req.body.title,description:req.body.description,nodes:req.body.nodes,edges:req.body.edges},req.body.expectedVersion);
+  const revision=await store.createRevision(req.params.flowId,{title:req.body.title,...(req.body.description===undefined?{}:{description:req.body.description}),nodes:req.body.nodes,edges:req.body.edges},req.body.expectedVersion);
   if(!revision)return reply.code(409).send({error:"revision_conflict",message:"expectedVersion is stale or the flow is currently in review"});
   return reply.code(201).send(revision);
  });
