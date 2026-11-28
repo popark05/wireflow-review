@@ -21,8 +21,13 @@ Wireflow Review는 기획 및 흐름 검토 도구입니다. 런타임 탐색 �
 ## 원본 프로젝트
 기존 XU Wireflow Review 스킬 및 릴리스 자료는 [JeongK7998/wireflow-review](https://github.com/JeongK7998/wireflow-review)에서 확인할 수 있습니다. 이 저장소는 popark05 도구 체인의 독립 개발 저장소이며, 원본 소스와 릴리스 파일 전체를 복제한 상태는 아닙니다.
 
-## 진행 상태
-저장소 초기화 완료. 구현에 앞서 제품 범위와 저장소 간 연동 계약을 정리하고 있습니다.
+## 현재 구현 상태
+- Wireflow 가져오기, 조회, 제출, 리뷰를 위한 Fastify API
+- Node/Edge 식별자 및 그래프 참조 검증
+- 로컬 개발 및 테스트용 In-memory Repository
+- `DATABASE_URL` 설정 시 PostgreSQL 영속성 지원. 서버 시작 시 필요한 테이블과 인덱스를 생성합니다.
+
+현재 구현은 백엔드 기반 기능입니다. 시각적 Wireflow 편집기 UI와 불변 Revision 이력은 아직 구현되지 않았습니다.
 
 ## 라이선스
 외부 공개 및 배포 전에 결정합니다.
