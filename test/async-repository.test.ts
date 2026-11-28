@@ -3,7 +3,7 @@ import test from "node:test";
 import { WireflowStore, type WireflowRepository } from "../src/domain/wireflow.js";
 import { buildApp } from "../src/server/app.js";
 
-test("API awaits asynchronous wireflow repository operations", async () => {
+test("API awaits asynchronous wireflow repository operations including revisions", async () => {
   const memory = new WireflowStore();
   const repository: WireflowRepository = {
     async import(input) { return memory.import(input); },
@@ -12,7 +12,10 @@ test("API awaits asynchronous wireflow repository operations", async () => {
     async review(id, reviewerId, decision, comment) {
       return memory.review(id, reviewerId, decision, comment);
     },
-    async export(id) { return memory.export(id); }
+    async export(id) { return memory.export(id); },
+    async createRevision(id, input, expectedVersion) { return memory.createRevision(id, input, expectedVersion); },
+    async listRevisions(id) { return memory.listRevisions(id); },
+    async getRevision(id, version) { return memory.getRevision(id, version); }
   };
   const app = buildApp(repository);
   const imported = await app.inject({
@@ -27,6 +30,14 @@ test("API awaits asynchronous wireflow repository operations", async () => {
   });
   assert.equal(imported.statusCode, 201);
   const flowId = imported.json().flowId;
+
+  const revision = await app.inject({
+    method: "POST", url: `/v1/flows/${flowId}/revisions`,
+    payload: { expectedVersion: 1, title: "Async repository flow v2", nodes: [{ nodeId: "home", type: "screen", title: "Home" }], edges: [] }
+  });
+  assert.equal(revision.statusCode, 201);
+  assert.equal(revision.json().version, 2);
+  assert.equal(revision.json().document.nodes[0].origin, "product_requirement", "revisions get import defaults");
 
   const submitted = await app.inject({
     method: "POST",
@@ -48,5 +59,7 @@ test("API awaits asynchronous wireflow repository operations", async () => {
   const exported = await app.inject({ method: "GET", url: `/v1/flows/${flowId}/export` });
   assert.equal(exported.statusCode, 200);
   assert.equal(exported.json().approval.reviewId, reviewed.json().reviewId);
+  assert.equal(exported.json().flowVersion, 2);
+  assert.equal(exported.json().title, "Async repository flow v2");
   await app.close();
 });

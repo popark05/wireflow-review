@@ -22,7 +22,7 @@ Wireflow Review is a planning/review tool. It does not own runtime discovery ses
 The original XU Wireflow Review skill and release assets are maintained at [JeongK7998/wireflow-review](https://github.com/JeongK7998/wireflow-review). This repository is the separate development home for the popark05 toolchain; upstream source/assets have not been copied wholesale.
 
 ## Status
-API for importing and validating a wireflow graph, submitting it, recording a review decision, and exporting approved flows as the `flow-model` contract (1.1).
+API for importing and validating a wireflow graph, keeping immutable revisions, submitting it, recording a review decision, and exporting approved flows as the `flow-model` contract (1.1).
 
 - Contract: [`contracts/flow-model.v1.schema.json`](contracts/flow-model.v1.schema.json)
 - Design decisions (Korean): [`docs/architecture/flow-contract.md`](docs/architecture/flow-contract.md)
@@ -32,9 +32,14 @@ API for importing and validating a wireflow graph, submitting it, recording a re
 |---|---|---|
 | POST | `/v1/flows/import` | Import a flow graph (optional `origin`, `kind`, `discoveryRef`) |
 | GET | `/v1/flows/{flowId}` | Read the current flow |
+| POST | `/v1/flows/{flowId}/revisions` | Create the next revision (`expectedVersion`, `title`, `nodes`, `edges`, optional `description`) |
+| GET | `/v1/flows/{flowId}/revisions` | List immutable revision snapshots |
+| GET | `/v1/flows/{flowId}/revisions/{version}` | Read one revision snapshot |
 | POST | `/v1/flows/{flowId}/submissions` | Submit for review |
-| POST | `/v1/flows/{flowId}/reviews` | Approve or request changes |
-| GET | `/v1/flows/{flowId}/export` | Export an approved flow (`flow-model`) |
+| POST | `/v1/flows/{flowId}/reviews` | Approve or request changes (bound to the current version) |
+| GET | `/v1/flows/{flowId}/export` | Export the approved current version (`flow-model`) |
+
+Creating a revision resets review status to `draft`; it is rejected while the flow is `in_review` or when `expectedVersion` is stale. Export publishes only an approval of the current version, so a new revision is not exported until it is reviewed again. PostgreSQL stores snapshots in `wireflow_revisions` with a unique `(flow_id, version)` constraint; existing flows are backfilled with their current document as the initial available revision at startup, which cannot reconstruct versions that predate the table.
 
 ```bash
 npm install
@@ -42,7 +47,7 @@ npm run typecheck && npm test && npm run build
 npm run dev   # PORT defaults to 3002
 ```
 
-A visual authoring/editor UI and immutable revision history are not yet implemented.
+A visual authoring/editor UI is not yet implemented.
 
 ## License
 To be decided before public distribution.

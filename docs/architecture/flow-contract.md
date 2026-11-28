@@ -54,7 +54,7 @@ Wireflow Review에는 `rejected`(폐기)가 없습니다. 필요해지면 v1.1�
 ## 불변성과 버전
 
 - `(flowId, flowVersion)` 쌍으로 식별되는 스냅샷은 불변입니다. 소비자는 Test Case 출처(provenance)에 이 쌍을 기록해야 합니다.
-- 현재 구현은 Flow 수정 API가 없어 `flowVersion`이 항상 1입니다. 버전 생성(QA Platform의 `expectedVersion` 방식)은 후속 작업입니다.
+- `POST /v1/flows/{flowId}/revisions`로 새 버전을 만들면 `flowVersion`이 1씩 증가하고, 그 버전이 다시 승인되어야 공개됩니다.
 - 노드의 `metadata`는 Wireflow Review 내부 전용이며 공개하지 않습니다.
 
 ## 계약 변경 규칙
@@ -66,7 +66,6 @@ Wireflow Review에는 `rejected`(폐기)가 없습니다. 필요해지면 v1.1�
 
 - 태스크 단위 화면 그룹(`tasks`) 표현 — v1.2 후보
 - 인증: QA Platform의 서비스 토큰/JWT 방식과 맞출지
-- 영속화: 현재 in-memory 전용
 
 ## 변경 이력
 

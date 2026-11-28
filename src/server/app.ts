@@ -1,6 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import {
-  validateWireflow, WireflowStore, type ReviewDecision, type WireflowInput, type WireflowRepository
+  validateWireflow, WireflowStore, type ReviewDecision, type WireflowInput, type WireflowRepository, type WireflowRevisionInput
 } from "../domain/wireflow.js";
 
 const originSchema = { type: "string", enum: ["product_requirement", "ai_suggestion", "open_question", "discovered"] } as const;
@@ -65,6 +65,19 @@ const importSchema = {
   }
 } as const;
 
+const revisionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["expectedVersion", "title", "nodes", "edges"],
+  properties: {
+    expectedVersion: { type: "integer", minimum: 1 },
+    title: importSchema.properties.title,
+    description: importSchema.properties.description,
+    nodes: importSchema.properties.nodes,
+    edges: importSchema.properties.edges
+  }
+} as const;
+
 const reviewSchema = {
   type: "object",
   additionalProperties: false,
@@ -96,6 +109,36 @@ export function buildApp(store: WireflowRepository = new WireflowStore()): Fasti
     const flow = await store.get(request.params.flowId);
     if (!flow) return reply.code(404).send({ error: "flow_not_found" });
     return flow;
+  });
+
+  app.post<{ Params: { flowId: string }; Body: WireflowRevisionInput & { expectedVersion: number } }>(
+    "/v1/flows/:flowId/revisions",
+    { schema: { body: revisionSchema } },
+    async (request, reply) => {
+      const current = await store.get(request.params.flowId);
+      if (!current) return reply.code(404).send({ error: "flow_not_found" });
+      const { expectedVersion, ...input } = request.body;
+      const issues = validateWireflow({ applicationId: current.applicationId, ...input });
+      if (issues.length) return reply.code(422).send({ error: "invalid_wireflow", issues });
+      const revision = await store.createRevision(request.params.flowId, input, expectedVersion);
+      if (!revision) {
+        return reply.code(409).send({ error: "revision_conflict", message: "expectedVersion is stale or the flow is currently in review" });
+      }
+      return reply.code(201).send(revision);
+    }
+  );
+
+  app.get<{ Params: { flowId: string } }>("/v1/flows/:flowId/revisions", async (request, reply) => {
+    if (!(await store.get(request.params.flowId))) return reply.code(404).send({ error: "flow_not_found" });
+    return store.listRevisions(request.params.flowId);
+  });
+
+  app.get<{ Params: { flowId: string; version: string } }>("/v1/flows/:flowId/revisions/:version", async (request, reply) => {
+    const version = Number(request.params.version);
+    if (!Number.isSafeInteger(version) || version < 1) return reply.code(400).send({ error: "invalid_revision_version" });
+    const revision = await store.getRevision(request.params.flowId, version);
+    if (!revision) return reply.code(404).send({ error: "revision_not_found" });
+    return revision;
   });
 
   app.post<{ Params: { flowId: string } }>("/v1/flows/:flowId/submissions", async (request, reply) => {

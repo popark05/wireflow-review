@@ -58,6 +58,18 @@ export interface WireflowInput {
   edges: Array<Omit<FlowEdge, "origin" | "kind"> & { origin?: ElementOrigin; kind?: EdgeKind }>;
 }
 
+/** Graph content of a new revision; the application stays fixed. */
+export type WireflowRevisionInput = Omit<WireflowInput, "applicationId">;
+
+/** Immutable snapshot of a flow version. */
+export interface FlowRevision {
+  revisionId: string;
+  flowId: string;
+  version: number;
+  document: WireflowDocument;
+  createdAt: string;
+}
+
 export interface FlowReviewRecord {
   reviewId: string;
   flowId: string;
@@ -95,6 +107,17 @@ export interface WireflowRepository {
   review(flowId: string, reviewerId: string, decision: ReviewDecision, comment?: string): MaybePromise<FlowReviewRecord | undefined>;
   /** Published flow-model snapshot, or undefined unless the current version is approved. */
   export(flowId: string): MaybePromise<FlowModelV1 | undefined>;
+  /** Appends version expectedVersion+1 as a new draft; undefined on a stale version or while in review. */
+  createRevision(flowId: string, input: WireflowRevisionInput, expectedVersion: number): MaybePromise<FlowRevision | undefined>;
+  listRevisions(flowId: string): MaybePromise<FlowRevision[]>;
+  getRevision(flowId: string, version: number): MaybePromise<FlowRevision | undefined>;
+}
+
+function withGraphDefaults(input: Pick<WireflowInput, "nodes" | "edges">): Pick<WireflowDocument, "nodes" | "edges"> {
+  return {
+    nodes: input.nodes.map((node) => ({ ...node, origin: node.origin ?? "product_requirement" })),
+    edges: input.edges.map((edge) => ({ ...edge, kind: edge.kind ?? "primary", origin: edge.origin ?? "product_requirement" }))
+  };
 }
 
 /** Applies import defaults: origin product_requirement, edge kind primary. */
@@ -102,15 +125,22 @@ export function createWireflowDocument(input: WireflowInput, now = new Date().to
   return {
     flowId: randomUUID(),
     version: 1,
-    ...input,
-    nodes: input.nodes.map((node) => ({ ...node, origin: node.origin ?? "product_requirement" })),
-    edges: input.edges.map((edge) => ({
-      ...edge,
-      kind: edge.kind ?? "primary",
-      origin: edge.origin ?? "product_requirement"
-    })),
+    ...structuredClone(input),
+    ...withGraphDefaults(structuredClone(input)),
     reviewStatus: "draft",
     createdAt: now,
+    updatedAt: now
+  };
+}
+
+/** Next version of a flow: replaces graph content, resets review to draft. */
+export function createRevisionDocument(current: WireflowDocument, input: WireflowRevisionInput, now = new Date().toISOString()): WireflowDocument {
+  return {
+    ...current,
+    ...structuredClone(input),
+    ...withGraphDefaults(structuredClone(input)),
+    version: current.version + 1,
+    reviewStatus: "draft",
     updatedAt: now
   };
 }
@@ -157,18 +187,25 @@ export function validateWireflow(input: WireflowInput): ValidationIssue[] {
   return issues;
 }
 
+const clone = <T>(value: T): T => structuredClone(value);
+
 export class WireflowStore implements WireflowRepository {
   private readonly flows = new Map<string, WireflowDocument>();
+  private readonly revisions = new Map<string, FlowRevision[]>();
   private readonly reviews: FlowReviewRecord[] = [];
 
   import(input: WireflowInput): WireflowDocument {
     const flow = createWireflowDocument(input);
-    this.flows.set(flow.flowId, flow);
-    return flow;
+    this.flows.set(flow.flowId, clone(flow));
+    this.revisions.set(flow.flowId, [{
+      revisionId: randomUUID(), flowId: flow.flowId, version: 1, document: clone(flow), createdAt: flow.createdAt
+    }]);
+    return clone(flow);
   }
 
   get(flowId: string): WireflowDocument | undefined {
-    return this.flows.get(flowId);
+    const flow = this.flows.get(flowId);
+    return flow ? clone(flow) : undefined;
   }
 
   submit(flowId: string): WireflowDocument | undefined {
@@ -176,7 +213,7 @@ export class WireflowStore implements WireflowRepository {
     if (!flow || (flow.reviewStatus !== "draft" && flow.reviewStatus !== "changes_requested")) return undefined;
     const updated: WireflowDocument = { ...flow, reviewStatus: "in_review", updatedAt: new Date().toISOString() };
     this.flows.set(flowId, updated);
-    return updated;
+    return clone(updated);
   }
 
   review(flowId: string, reviewerId: string, decision: ReviewDecision, comment?: string): FlowReviewRecord | undefined {
@@ -193,10 +230,9 @@ export class WireflowStore implements WireflowRepository {
     };
     this.reviews.push(record);
     this.flows.set(flowId, { ...flow, reviewStatus: decision, updatedAt: record.reviewedAt });
-    return record;
+    return clone(record);
   }
 
-  /** Returns the published contract snapshot, or undefined unless the current version is approved. */
   export(flowId: string): FlowModelV1 | undefined {
     const flow = this.flows.get(flowId);
     if (!flow || flow.reviewStatus !== "approved") return undefined;
@@ -204,6 +240,27 @@ export class WireflowStore implements WireflowRepository {
       .filter((review) => review.flowId === flowId && review.flowVersion === flow.version && review.decision === "approved")
       .at(-1);
     if (!approval) return undefined;
-    return toFlowModel(flow, approval);
+    return toFlowModel(clone(flow), approval);
+  }
+
+  createRevision(flowId: string, input: WireflowRevisionInput, expectedVersion: number): FlowRevision | undefined {
+    const current = this.flows.get(flowId);
+    if (!current || current.version !== expectedVersion || current.reviewStatus === "in_review") return undefined;
+    const document = createRevisionDocument(current, input);
+    const revision: FlowRevision = {
+      revisionId: randomUUID(), flowId, version: document.version, document: clone(document), createdAt: document.updatedAt
+    };
+    this.flows.set(flowId, clone(document));
+    this.revisions.get(flowId)!.push(clone(revision));
+    return clone(revision);
+  }
+
+  listRevisions(flowId: string): FlowRevision[] {
+    return clone(this.revisions.get(flowId) ?? []);
+  }
+
+  getRevision(flowId: string, version: number): FlowRevision | undefined {
+    const revision = this.revisions.get(flowId)?.find((item) => item.version === version);
+    return revision ? clone(revision) : undefined;
   }
 }
