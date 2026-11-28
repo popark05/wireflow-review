@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main, feat/wireflow-immutable-revisions]
+    branches: [main, feat/postgres-wireflow-persistence]
 
 jobs:
   verify:
