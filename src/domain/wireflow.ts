@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 export type FlowNodeType = "screen" | "decision" | "external";
 export type ReviewStatus = "draft" | "in_review" | "approved" | "changes_requested";
 export type ReviewDecision = "approved" | "changes_requested";
-export type ElementOrigin = "product_requirement" | "ai_suggestion" | "open_question";
+/** discovered: observed in the running app by Reverse Screen (flow contract 1.1). */
+export type ElementOrigin = "product_requirement" | "ai_suggestion" | "open_question" | "discovered";
 export type EdgeKind = "primary" | "back" | "cancel" | "retry" | "empty" | "failure";
 
 /** Reference to a runtime fact discovered by Reverse Screen. IDs are copied verbatim from Discovery Events. */
@@ -69,7 +70,7 @@ export interface FlowReviewRecord {
 
 /** Wire format defined by contracts/flow-model.v1.schema.json. */
 export interface FlowModelV1 {
-  contractVersion: "1.0";
+  contractVersion: "1.1";
   sourceSystem: "wireflow-review";
   flowId: string;
   flowVersion: number;
@@ -171,7 +172,7 @@ export class WireflowStore {
       .at(-1);
     if (!approval) return undefined;
     return {
-      contractVersion: "1.0",
+      contractVersion: "1.1",
       sourceSystem: "wireflow-review",
       flowId: flow.flowId,
       flowVersion: flow.version,

@@ -1,4 +1,4 @@
-# Flow Model 계약 v1
+# Flow Model 계약 v1 (현재 1.1)
 
 Wireflow Review가 승인한 Flow를 다른 저장소에 공개하는 계약입니다. 스키마: [`contracts/flow-model.v1.schema.json`](../../contracts/flow-model.v1.schema.json).
 
@@ -46,7 +46,9 @@ Wireflow Review에는 `rejected`(폐기)가 없습니다. 필요해지면 v1.1�
 
 ## 요소 출처(`origin`)와 경로 종류(`kind`)
 
-- `origin`: `product_requirement` | `ai_suggestion` | `open_question`. import 시 생략하면 `product_requirement`로 저장합니다. QA Platform은 `open_question` 요소로부터 실행 가능한 테스트를 바로 생성하지 않아야 합니다.
+- `origin`: `product_requirement` | `ai_suggestion` | `open_question` | `discovered`(1.1). import 시 생략하면 `product_requirement`로 저장합니다.
+  - `discovered`는 Reverse Screen이 실행 중인 앱에서 관찰한 요소입니다. 새 요구사항이 아니라 "현재 앱이 실제로 이렇게 동작한다"는 사실이며, Reverse Screen의 wireflow-draft는 모든 노드·엣지를 `discovered`로 내보냅니다.
+  - QA Platform은 `open_question` 요소로부터 실행 가능한 테스트를 바로 생성하지 않아야 합니다. `discovered`는 승인된 Flow 안에서 테스트 대상입니다.
 - `kind` (엣지만): `primary` | `back` | `cancel` | `retry` | `empty` | `failure`. import 시 생략하면 `primary`입니다. 대체 경로 리뷰 커버리지에 사용합니다.
 
 ## 불변성과 버전
@@ -62,8 +64,13 @@ Wireflow Review에는 `rejected`(폐기)가 없습니다. 필요해지면 v1.1�
 
 ## 아직 정하지 않은 것
 
-- 런타임에서 발견한 요소의 `origin`: 지금은 기본값 `product_requirement`로 저장됩니다. "현재 앱의 실제 동작"을 나타내는 값(예: `discovered`)을 추가할지
-
-- 태스크 단위 화면 그룹(`tasks`) 표현 — v1.1 후보
+- 태스크 단위 화면 그룹(`tasks`) 표현 — v1.2 후보
 - 인증: QA Platform의 서비스 토큰/JWT 방식과 맞출지
 - 영속화: 현재 in-memory 전용
+
+## 변경 이력
+
+| 버전 | 변경 |
+|---|---|
+| 1.0 | 최초 공개 |
+| 1.1 | `origin`에 `discovered` 추가. `contractVersion`은 `"1.1"`로 내보내며, 소비자는 1.0과 1.1을 모두 받아야 합니다. 열거형 값 추가이므로 값을 엄격히 검사하는 소비자는 먼저 갱신해야 합니다(QA Platform은 이미 반영). |

@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { validateWireflow, WireflowStore, type ReviewDecision, type WireflowInput } from "../domain/wireflow.js";
 
-const originSchema = { type: "string", enum: ["product_requirement", "ai_suggestion", "open_question"] } as const;
+const originSchema = { type: "string", enum: ["product_requirement", "ai_suggestion", "open_question", "discovered"] } as const;
 
 const reverseScreenRefSchema = {
   type: "object",

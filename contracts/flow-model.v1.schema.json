@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/popark05/wireflow-review/contracts/flow-model.v1.schema.json",
   "title": "Wireflow Flow Model v1",
-  "description": "Immutable snapshot of a human-approved wireflow published by Wireflow Review. Consumers (QA Platform) must treat a (flowId, flowVersion) pair as immutable. Only approved flows are published; drafts and flows under review are never exported.",
+  "description": "Immutable snapshot (contract 1.0/1.1) of a human-approved wireflow published by Wireflow Review. Consumers (QA Platform) must treat a (flowId, flowVersion) pair as immutable. Only approved flows are published; drafts and flows under review are never exported.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -18,83 +18,209 @@
     "exportedAt"
   ],
   "properties": {
-    "contractVersion": { "const": "1.0" },
-    "sourceSystem": { "const": "wireflow-review" },
-    "flowId": { "type": "string", "format": "uuid" },
-    "flowVersion": { "type": "integer", "minimum": 1 },
-    "applicationId": { "type": "string", "minLength": 1, "maxLength": 200 },
-    "title": { "type": "string", "minLength": 1, "maxLength": 240 },
-    "description": { "type": "string", "maxLength": 4000 },
+    "contractVersion": {
+      "description": "1.1 adds origin 'discovered'. Producers emit 1.1; consumers should accept 1.0 and 1.1.",
+      "enum": [
+        "1.0",
+        "1.1"
+      ]
+    },
+    "sourceSystem": {
+      "const": "wireflow-review"
+    },
+    "flowId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "flowVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "applicationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 4000
+    },
     "approval": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["reviewId", "reviewerId", "approvedAt"],
+      "required": [
+        "reviewId",
+        "reviewerId",
+        "approvedAt"
+      ],
       "properties": {
-        "reviewId": { "type": "string", "format": "uuid" },
-        "reviewerId": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "approvedAt": { "type": "string", "format": "date-time" }
+        "reviewId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "reviewerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "approvedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       }
     },
     "nodes": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/node" }
+      "items": {
+        "$ref": "#/$defs/node"
+      }
     },
     "edges": {
       "type": "array",
-      "items": { "$ref": "#/$defs/edge" }
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
     },
-    "exportedAt": { "type": "string", "format": "date-time" }
+    "exportedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
   },
   "$defs": {
     "origin": {
-      "description": "Why this element exists. product_requirement: specified by the product owner. ai_suggestion: proposed by AI and accepted as part of the approved flow. open_question: an unresolved decision kept visible to downstream consumers; QA Platform must not generate executable tests from open_question elements without further review.",
+      "description": "Why this element exists. product_requirement: specified by the product owner. ai_suggestion: proposed by AI and accepted as part of the approved flow. open_question: an unresolved decision kept visible to downstream consumers; QA Platform must not generate executable tests from open_question elements without further review. discovered (1.1): observed in the running application by Reverse Screen and accepted in review; it describes current behavior rather than a new requirement.",
       "type": "string",
-      "enum": ["product_requirement", "ai_suggestion", "open_question"]
+      "enum": [
+        "product_requirement",
+        "ai_suggestion",
+        "open_question",
+        "discovered"
+      ]
     },
     "reverseScreenRef": {
       "description": "Link to a runtime fact discovered by Reverse Screen. IDs are copied verbatim from Reverse Screen Discovery Events (screen_id, state_id, transition_id, session_id).",
       "type": "object",
       "additionalProperties": false,
-      "required": ["sourceSystem"],
+      "required": [
+        "sourceSystem"
+      ],
       "minProperties": 2,
       "properties": {
-        "sourceSystem": { "const": "reverse-screen" },
-        "screenId": { "type": "string", "format": "uuid" },
-        "stateId": { "type": "string", "format": "uuid" },
-        "transitionId": { "type": "string", "format": "uuid" },
-        "sessionId": { "type": "string", "format": "uuid" }
+        "sourceSystem": {
+          "const": "reverse-screen"
+        },
+        "screenId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "stateId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "transitionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sessionId": {
+          "type": "string",
+          "format": "uuid"
+        }
       }
     },
     "node": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["nodeId", "type", "title", "origin"],
+      "required": [
+        "nodeId",
+        "type",
+        "title",
+        "origin"
+      ],
       "properties": {
-        "nodeId": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "type": { "type": "string", "enum": ["screen", "decision", "external"] },
-        "title": { "type": "string", "minLength": 1, "maxLength": 240 },
-        "origin": { "$ref": "#/$defs/origin" },
-        "discoveryRef": { "$ref": "#/$defs/reverseScreenRef" }
+        "nodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "screen",
+            "decision",
+            "external"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "origin": {
+          "$ref": "#/$defs/origin"
+        },
+        "discoveryRef": {
+          "$ref": "#/$defs/reverseScreenRef"
+        }
       }
     },
     "edge": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["edgeId", "fromNodeId", "toNodeId", "kind", "origin"],
+      "required": [
+        "edgeId",
+        "fromNodeId",
+        "toNodeId",
+        "kind",
+        "origin"
+      ],
       "properties": {
-        "edgeId": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "fromNodeId": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "toNodeId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "edgeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "fromNodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "toNodeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
         "kind": {
           "description": "Path category used for review coverage (primary task path vs. back/cancel/retry/empty/failure alternates).",
           "type": "string",
-          "enum": ["primary", "back", "cancel", "retry", "empty", "failure"]
+          "enum": [
+            "primary",
+            "back",
+            "cancel",
+            "retry",
+            "empty",
+            "failure"
+          ]
         },
-        "label": { "type": "string", "maxLength": 240 },
-        "trigger": { "type": "string", "maxLength": 240 },
-        "origin": { "$ref": "#/$defs/origin" },
-        "discoveryRef": { "$ref": "#/$defs/reverseScreenRef" }
+        "label": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "trigger": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "origin": {
+          "$ref": "#/$defs/origin"
+        },
+        "discoveryRef": {
+          "$ref": "#/$defs/reverseScreenRef"
+        }
       }
     }
   }

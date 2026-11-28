@@ -27,6 +27,7 @@ const checkoutFlow = {
       discoveryRef: { sourceSystem: "reverse-screen", screenId: LOGIN_SCREEN_ID }
     },
     { nodeId: "payment-error", type: "screen", title: "Payment failed", origin: "ai_suggestion" },
+    { nodeId: "receipt", type: "screen", title: "Receipt", origin: "discovered" },
     { nodeId: "saved-card?", type: "decision", title: "Use saved card?", origin: "open_question" }
   ],
   edges: [
@@ -64,7 +65,7 @@ test("approved flow exports a document that conforms to flow-model v1", async ()
   const model = exported.json<FlowModelV1>();
 
   assert.ok(validateFlowModel(model), JSON.stringify(validateFlowModel.errors, null, 2));
-  assert.equal(model.contractVersion, "1.0");
+  assert.equal(model.contractVersion, "1.1");
   assert.equal(model.sourceSystem, "wireflow-review");
   assert.equal(model.flowVersion, 1);
   assert.equal(model.approval.reviewId, reviewId);
