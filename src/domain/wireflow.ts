@@ -37,6 +37,13 @@ export interface WireflowInput {
   nodes: FlowNode[];
   edges: FlowEdge[];
 }
+export interface FlowRevision {
+  revisionId: string;
+  flowId: string;
+  version: number;
+  document: WireflowDocument;
+  createdAt: string;
+}
 export interface FlowReviewRecord {
   reviewId: string;
   flowId: string;
@@ -57,6 +64,13 @@ export interface WireflowRepository {
     decision: "approved" | "changes_requested",
     comment?: string
   ): FlowReviewRecord | undefined | Promise<FlowReviewRecord | undefined>;
+  createRevision(
+    id: string,
+    input: Omit<WireflowInput, "applicationId">,
+    expectedVersion: number
+  ): FlowRevision | undefined | Promise<FlowRevision | undefined>;
+  listRevisions(id: string): FlowRevision[] | Promise<FlowRevision[]>;
+  getRevision(id: string, version: number): FlowRevision | undefined | Promise<FlowRevision | undefined>;
 }
 
 export function validateWireflow(input: WireflowInput): ValidationIssue[] {
@@ -82,22 +96,30 @@ export function validateWireflow(input: WireflowInput): ValidationIssue[] {
   return issues;
 }
 
+const clone = <T>(value: T): T => structuredClone(value);
+
 export class WireflowStore implements WireflowRepository {
   private readonly flows = new Map<string, WireflowDocument>();
+  private readonly revisions = new Map<string, FlowRevision[]>();
   private readonly reviews: FlowReviewRecord[] = [];
 
   import(input: WireflowInput): WireflowDocument {
     const now = new Date().toISOString();
     const flow: WireflowDocument = {
-      flowId: randomUUID(), version: 1, ...input,
+      flowId: randomUUID(), version: 1, ...clone(input),
       reviewStatus: "draft", createdAt: now, updatedAt: now
     };
-    this.flows.set(flow.flowId, flow);
-    return flow;
+    this.flows.set(flow.flowId, clone(flow));
+    this.revisions.set(flow.flowId, [{
+      revisionId: randomUUID(), flowId: flow.flowId, version: 1,
+      document: clone(flow), createdAt: now
+    }]);
+    return clone(flow);
   }
 
   get(id: string): WireflowDocument | undefined {
-    return this.flows.get(id);
+    const flow = this.flows.get(id);
+    return flow ? clone(flow) : undefined;
   }
 
   submit(id: string): WireflowDocument | undefined {
@@ -105,7 +127,7 @@ export class WireflowStore implements WireflowRepository {
     if (!flow || !["draft", "changes_requested"].includes(flow.reviewStatus)) return undefined;
     const updated = { ...flow, reviewStatus: "in_review" as const, updatedAt: new Date().toISOString() };
     this.flows.set(id, updated);
-    return updated;
+    return clone(updated);
   }
 
   review(
@@ -123,6 +145,36 @@ export class WireflowStore implements WireflowRepository {
     };
     this.reviews.push(record);
     this.flows.set(id, { ...flow, reviewStatus: decision, updatedAt: record.reviewedAt });
-    return record;
+    return clone(record);
+  }
+
+  createRevision(
+    id: string,
+    input: Omit<WireflowInput, "applicationId">,
+    expectedVersion: number
+  ): FlowRevision | undefined {
+    const current = this.flows.get(id);
+    if (!current || current.version !== expectedVersion || current.reviewStatus === "in_review") return undefined;
+    const createdAt = new Date().toISOString();
+    const document: WireflowDocument = {
+      ...current, ...clone(input), version: current.version + 1,
+      reviewStatus: "draft", updatedAt: createdAt
+    };
+    const revision: FlowRevision = {
+      revisionId: randomUUID(), flowId: id, version: document.version,
+      document: clone(document), createdAt
+    };
+    this.flows.set(id, clone(document));
+    this.revisions.get(id)!.push(clone(revision));
+    return clone(revision);
+  }
+
+  listRevisions(id: string): FlowRevision[] {
+    return clone(this.revisions.get(id) ?? []);
+  }
+
+  getRevision(id: string, version: number): FlowRevision | undefined {
+    const revision = this.revisions.get(id)?.find((item) => item.version === version);
+    return revision ? clone(revision) : undefined;
   }
 }
