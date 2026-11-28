@@ -9,7 +9,12 @@ reverse-screen ──(import: 발견된 화면/전이 ID 참조)──▶ wirefl
 ```
 
 - **Wireflow Review가 Flow 검토·승인의 기준 시스템(system of record)입니다.** "Verified ≠ Approved" 원칙에 따라, Reverse Screen이 런타임 증거로 *검증한* 전이도 사람이 이 저장소에서 *승인*해야 공개됩니다.
-- **Reverse Screen → Wireflow Review**: `POST /v1/flows/import` 본문의 노드·엣지에 `discoveryRef`를 넣어 Discovery Event의 `screen_id`, `state_id`, `transition_id`, `session_id`를 그대로 참조합니다. 현재 Reverse Screen에는 Flow를 내보내는 API가 없으므로, 이 계약은 향후 Reverse Screen exporter가 맞춰야 할 입력 형식입니다.
+- **Reverse Screen → Wireflow Review**: `POST /v1/flows/import` 본문의 노드·엣지에 `discoveryRef`를 넣어 Discovery Event의 `screen_id`, `state_id`, `transition_id`, `session_id`를 그대로 참조합니다. Reverse Screen의 `GET /v1/discovery-sessions/{sessionId}/wireflow-draft`가 이 import 본문을 그대로 만들어 줍니다. 노드 ID는 화면 ID, 엣지 ID는 `transition-<transitionId>`이며, 같은 세션을 다시 내보내도 결과가 같습니다. 가져온 Flow는 `draft` 상태로 시작하므로 사람이 검토하고 승인해야 공개됩니다.
+
+  ```bash
+  curl -s $REVERSE_SCREEN/v1/discovery-sessions/$SESSION/wireflow-draft \
+    | curl -s -X POST $WIREFLOW/v1/flows/import -H 'content-type: application/json' --data-binary @-
+  ```
 - **Wireflow Review → QA Platform**: `GET /v1/flows/{flowId}/export`가 `flow-model.v1` 문서를 반환합니다. 승인된 Flow만 공개하며 draft, in_review, changes_requested 상태에서는 `409 flow_not_approved`를 반환합니다.
 - 다른 저장소의 데이터베이스는 직접 읽거나 쓰지 않습니다.
 
@@ -56,6 +61,8 @@ Wireflow Review에는 `rejected`(폐기)가 없습니다. 필요해지면 v1.1�
 - 스키마는 `additionalProperties: false`이므로, 소비자는 자신이 지원하는 `contractVersion`만 받아들여야 합니다.
 
 ## 아직 정하지 않은 것
+
+- 런타임에서 발견한 요소의 `origin`: 지금은 기본값 `product_requirement`로 저장됩니다. "현재 앱의 실제 동작"을 나타내는 값(예: `discovered`)을 추가할지
 
 - 태스크 단위 화면 그룹(`tasks`) 표현 — v1.1 후보
 - 인증: QA Platform의 서비스 토큰/JWT 방식과 맞출지
