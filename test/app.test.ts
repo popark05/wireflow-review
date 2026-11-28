@@ -6,8 +6,8 @@ const validFlow = {
   applicationId: "demo-app",
   title: "Sign-in flow",
   nodes: [
-    { nodeId: "home", type: "screen", title: "Home", screenId: "screen.home" },
-    { nodeId: "login", type: "screen", title: "Login", screenId: "screen.login" }
+    { nodeId: "home", type: "screen", title: "Home" },
+    { nodeId: "login", type: "screen", title: "Login" }
   ],
   edges: [
     { edgeId: "home-login", fromNodeId: "home", toNodeId: "login", label: "Log in", trigger: "tap" }

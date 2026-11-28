@@ -4,17 +4,23 @@
   "private": false,
   "description": "Import, inspect and review clickable application wireflows.",
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "tsx watch src/server/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/server/index.js",
+    "start": "node dist/src/server/index.js",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "fastify": "^5.2.1" },
+  "dependencies": {
+    "fastify": "^5.2.1"
+  },
   "devDependencies": {
     "@types/node": "^22.13.4",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3"
   }

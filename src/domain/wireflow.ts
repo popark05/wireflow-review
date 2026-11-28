@@ -1,47 +1,187 @@
 import { randomUUID } from "node:crypto";
+
 export type FlowNodeType = "screen" | "decision" | "external";
 export type ReviewStatus = "draft" | "in_review" | "approved" | "changes_requested";
-export interface FlowNode { nodeId: string; type: FlowNodeType; title: string; screenId?: string; stateId?: string; metadata?: Record<string, unknown>; }
-export interface FlowEdge { edgeId: string; fromNodeId: string; toNodeId: string; label?: string; trigger?: string; }
+export type ReviewDecision = "approved" | "changes_requested";
+export type ElementOrigin = "product_requirement" | "ai_suggestion" | "open_question";
+export type EdgeKind = "primary" | "back" | "cancel" | "retry" | "empty" | "failure";
+
+/** Reference to a runtime fact discovered by Reverse Screen. IDs are copied verbatim from Discovery Events. */
+export interface ReverseScreenRef {
+  sourceSystem: "reverse-screen";
+  screenId?: string;
+  stateId?: string;
+  transitionId?: string;
+  sessionId?: string;
+}
+
+export interface FlowNode {
+  nodeId: string;
+  type: FlowNodeType;
+  title: string;
+  origin: ElementOrigin;
+  discoveryRef?: ReverseScreenRef;
+  metadata?: Record<string, unknown>;
+}
+
+export interface FlowEdge {
+  edgeId: string;
+  fromNodeId: string;
+  toNodeId: string;
+  kind: EdgeKind;
+  label?: string;
+  trigger?: string;
+  origin: ElementOrigin;
+  discoveryRef?: ReverseScreenRef;
+}
+
 export interface WireflowDocument {
-  flowId: string; version: number; applicationId: string; title: string; description?: string;
-  nodes: FlowNode[]; edges: FlowEdge[]; reviewStatus: ReviewStatus; createdAt: string; updatedAt: string;
+  flowId: string;
+  version: number;
+  applicationId: string;
+  title: string;
+  description?: string;
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+  reviewStatus: ReviewStatus;
+  createdAt: string;
+  updatedAt: string;
 }
-export interface WireflowInput { applicationId: string; title: string; description?: string; nodes: FlowNode[]; edges: FlowEdge[]; }
-export interface FlowReviewRecord { reviewId: string; flowId: string; reviewerId: string; decision: "approved" | "changes_requested"; comment?: string; reviewedAt: string; }
+
+/** Import body: origin and kind are optional and default to product_requirement / primary. */
+export interface WireflowInput {
+  applicationId: string;
+  title: string;
+  description?: string;
+  nodes: Array<Omit<FlowNode, "origin"> & { origin?: ElementOrigin }>;
+  edges: Array<Omit<FlowEdge, "origin" | "kind"> & { origin?: ElementOrigin; kind?: EdgeKind }>;
+}
+
+export interface FlowReviewRecord {
+  reviewId: string;
+  flowId: string;
+  flowVersion: number;
+  reviewerId: string;
+  decision: ReviewDecision;
+  comment?: string;
+  reviewedAt: string;
+}
+
+/** Wire format defined by contracts/flow-model.v1.schema.json. */
+export interface FlowModelV1 {
+  contractVersion: "1.0";
+  sourceSystem: "wireflow-review";
+  flowId: string;
+  flowVersion: number;
+  applicationId: string;
+  title: string;
+  description?: string;
+  approval: { reviewId: string; reviewerId: string; approvedAt: string };
+  nodes: Array<Omit<FlowNode, "metadata">>;
+  edges: FlowEdge[];
+  exportedAt: string;
+}
+
 export type ValidationIssue = { path: string; message: string };
+
 export function validateWireflow(input: WireflowInput): ValidationIssue[] {
- const issues: ValidationIssue[]=[];
- if(!input.applicationId.trim()) issues.push({path:"applicationId",message:"applicationId is required"});
- if(!input.title.trim()) issues.push({path:"title",message:"title is required"});
- if(input.nodes.length===0) issues.push({path:"nodes",message:"at least one node is required"});
- const ids=new Set<string>();
- for(const [i,n] of input.nodes.entries()){if(ids.has(n.nodeId))issues.push({path:`nodes[${i}].nodeId`,message:"nodeId must be unique"});ids.add(n.nodeId);}
- if(!input.nodes.some(n=>n.type==="screen"))issues.push({path:"nodes",message:"at least one screen node is required"});
- const edgeIds=new Set<string>();
- for(const [i,e] of input.edges.entries()){
-  if(edgeIds.has(e.edgeId))issues.push({path:`edges[${i}].edgeId`,message:"edgeId must be unique"});edgeIds.add(e.edgeId);
-  if(!ids.has(e.fromNodeId))issues.push({path:`edges[${i}].fromNodeId`,message:"source node does not exist"});
-  if(!ids.has(e.toNodeId))issues.push({path:`edges[${i}].toNodeId`,message:"target node does not exist"});
- }
- return issues;
+  const issues: ValidationIssue[] = [];
+  if (!input.applicationId.trim()) issues.push({ path: "applicationId", message: "applicationId is required" });
+  if (!input.title.trim()) issues.push({ path: "title", message: "title is required" });
+  if (input.nodes.length === 0) issues.push({ path: "nodes", message: "at least one node is required" });
+
+  const nodeIds = new Set<string>();
+  for (const [index, node] of input.nodes.entries()) {
+    if (nodeIds.has(node.nodeId)) issues.push({ path: `nodes[${index}].nodeId`, message: "nodeId must be unique" });
+    nodeIds.add(node.nodeId);
+  }
+  if (!input.nodes.some((node) => node.type === "screen")) {
+    issues.push({ path: "nodes", message: "at least one screen node is required" });
+  }
+
+  const edgeIds = new Set<string>();
+  for (const [index, edge] of input.edges.entries()) {
+    if (edgeIds.has(edge.edgeId)) issues.push({ path: `edges[${index}].edgeId`, message: "edgeId must be unique" });
+    edgeIds.add(edge.edgeId);
+    if (!nodeIds.has(edge.fromNodeId)) issues.push({ path: `edges[${index}].fromNodeId`, message: "source node does not exist" });
+    if (!nodeIds.has(edge.toNodeId)) issues.push({ path: `edges[${index}].toNodeId`, message: "target node does not exist" });
+  }
+  return issues;
 }
+
 export class WireflowStore {
- private readonly flows=new Map<string,WireflowDocument>();
- private readonly reviews:FlowReviewRecord[]=[];
- import(input:WireflowInput):WireflowDocument{
-  const now=new Date().toISOString();
-  const flow:WireflowDocument={flowId:randomUUID(),version:1,...input,reviewStatus:"draft",createdAt:now,updatedAt:now};
-  this.flows.set(flow.flowId,flow);return flow;
- }
- get(id:string):WireflowDocument|undefined{return this.flows.get(id);}
- submit(id:string):WireflowDocument|undefined{
-  const flow=this.flows.get(id);if(!flow||!["draft","changes_requested"].includes(flow.reviewStatus))return undefined;
-  const updated={...flow,reviewStatus:"in_review" as const,updatedAt:new Date().toISOString()};this.flows.set(id,updated);return updated;
- }
- review(id:string,reviewerId:string,decision:"approved"|"changes_requested",comment?:string):FlowReviewRecord|undefined{
-  const flow=this.flows.get(id);if(!flow||flow.reviewStatus!=="in_review")return undefined;
-  const record:FlowReviewRecord={reviewId:randomUUID(),flowId:id,reviewerId,decision,...(comment===undefined?{}:{comment}),reviewedAt:new Date().toISOString()};
-  this.reviews.push(record);this.flows.set(id,{...flow,reviewStatus:decision,updatedAt:record.reviewedAt});return record;
- }
+  private readonly flows = new Map<string, WireflowDocument>();
+  private readonly reviews: FlowReviewRecord[] = [];
+
+  import(input: WireflowInput): WireflowDocument {
+    const now = new Date().toISOString();
+    const flow: WireflowDocument = {
+      flowId: randomUUID(),
+      version: 1,
+      ...input,
+      nodes: input.nodes.map((node) => ({ ...node, origin: node.origin ?? "product_requirement" })),
+      edges: input.edges.map((edge) => ({
+        ...edge,
+        kind: edge.kind ?? "primary",
+        origin: edge.origin ?? "product_requirement"
+      })),
+      reviewStatus: "draft",
+      createdAt: now,
+      updatedAt: now
+    };
+    this.flows.set(flow.flowId, flow);
+    return flow;
+  }
+
+  get(flowId: string): WireflowDocument | undefined {
+    return this.flows.get(flowId);
+  }
+
+  submit(flowId: string): WireflowDocument | undefined {
+    const flow = this.flows.get(flowId);
+    if (!flow || (flow.reviewStatus !== "draft" && flow.reviewStatus !== "changes_requested")) return undefined;
+    const updated: WireflowDocument = { ...flow, reviewStatus: "in_review", updatedAt: new Date().toISOString() };
+    this.flows.set(flowId, updated);
+    return updated;
+  }
+
+  review(flowId: string, reviewerId: string, decision: ReviewDecision, comment?: string): FlowReviewRecord | undefined {
+    const flow = this.flows.get(flowId);
+    if (!flow || flow.reviewStatus !== "in_review") return undefined;
+    const record: FlowReviewRecord = {
+      reviewId: randomUUID(),
+      flowId,
+      flowVersion: flow.version,
+      reviewerId,
+      decision,
+      ...(comment === undefined ? {} : { comment }),
+      reviewedAt: new Date().toISOString()
+    };
+    this.reviews.push(record);
+    this.flows.set(flowId, { ...flow, reviewStatus: decision, updatedAt: record.reviewedAt });
+    return record;
+  }
+
+  /** Returns the published contract snapshot, or undefined unless the current version is approved. */
+  export(flowId: string): FlowModelV1 | undefined {
+    const flow = this.flows.get(flowId);
+    if (!flow || flow.reviewStatus !== "approved") return undefined;
+    const approval = this.reviews
+      .filter((review) => review.flowId === flowId && review.flowVersion === flow.version && review.decision === "approved")
+      .at(-1);
+    if (!approval) return undefined;
+    return {
+      contractVersion: "1.0",
+      sourceSystem: "wireflow-review",
+      flowId: flow.flowId,
+      flowVersion: flow.version,
+      applicationId: flow.applicationId,
+      title: flow.title,
+      ...(flow.description === undefined ? {} : { description: flow.description }),
+      approval: { reviewId: approval.reviewId, reviewerId: approval.reviewerId, approvedAt: approval.reviewedAt },
+      nodes: flow.nodes.map(({ metadata: _metadata, ...node }) => node),
+      edges: flow.edges,
+      exportedAt: new Date().toISOString()
+    };
+  }
 }

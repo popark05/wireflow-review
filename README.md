@@ -22,7 +22,24 @@ Wireflow Review is a planning/review tool. It does not own runtime discovery ses
 The original XU Wireflow Review skill and release assets are maintained at [JeongK7998/wireflow-review](https://github.com/JeongK7998/wireflow-review). This repository is the separate development home for the popark05 toolchain; upstream source/assets have not been copied wholesale.
 
 ## Status
-Repository initialized. Product scope and integration contracts are being established before implementation.
+Early API (in-memory): import and validate a wireflow graph, submit it, record a review decision, and export approved flows as the `flow-model` v1 contract.
+
+- Contract: [`contracts/flow-model.v1.schema.json`](contracts/flow-model.v1.schema.json)
+- Design decisions (Korean): [`docs/architecture/flow-contract.md`](docs/architecture/flow-contract.md)
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/v1/flows/import` | Import a flow graph (optional `origin`, `kind`, `discoveryRef`) |
+| GET | `/v1/flows/{flowId}` | Read the current flow |
+| POST | `/v1/flows/{flowId}/submissions` | Submit for review |
+| POST | `/v1/flows/{flowId}/reviews` | Approve or request changes |
+| GET | `/v1/flows/{flowId}/export` | Export an approved flow (`flow-model` v1) |
+
+```bash
+npm install
+npm run typecheck && npm test && npm run build
+npm run dev   # PORT defaults to 3002
+```
 
 ## License
 To be decided before public distribution.
