@@ -21,8 +21,13 @@ Wireflow Review is a planning/review tool. It does not own runtime discovery ses
 ## Upstream reference
 The original XU Wireflow Review skill and release assets are maintained at [JeongK7998/wireflow-review](https://github.com/JeongK7998/wireflow-review). This repository is the separate development home for the popark05 toolchain; upstream source/assets have not been copied wholesale.
 
-## Status
-Repository initialized. Product scope and integration contracts are being established before implementation.
+## Current implementation status
+- Fastify API for importing, retrieving, submitting, and reviewing wireflows.
+- Domain validation for node and edge identity and graph references.
+- In-memory repository for local development and tests.
+- Optional PostgreSQL persistence when `DATABASE_URL` is configured. The service creates its required tables and indexes at startup.
+
+The current API is a backend foundation; a visual authoring/editor UI and immutable revision history are not yet implemented.
 
 ## License
 To be decided before public distribution.
