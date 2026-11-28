@@ -22,10 +22,11 @@ Wireflow Review is a planning/review tool. It does not own runtime discovery ses
 The original XU Wireflow Review skill and release assets are maintained at [JeongK7998/wireflow-review](https://github.com/JeongK7998/wireflow-review). This repository is the separate development home for the popark05 toolchain; upstream source/assets have not been copied wholesale.
 
 ## Status
-Early API (in-memory): import and validate a wireflow graph, submit it, record a review decision, and export approved flows as the `flow-model` v1 contract.
+API for importing and validating a wireflow graph, submitting it, recording a review decision, and exporting approved flows as the `flow-model` contract (1.1).
 
 - Contract: [`contracts/flow-model.v1.schema.json`](contracts/flow-model.v1.schema.json)
 - Design decisions (Korean): [`docs/architecture/flow-contract.md`](docs/architecture/flow-contract.md)
+- Storage: in-memory by default; PostgreSQL when `DATABASE_URL` is configured (tables and indexes are created at startup).
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -33,13 +34,15 @@ Early API (in-memory): import and validate a wireflow graph, submit it, record a
 | GET | `/v1/flows/{flowId}` | Read the current flow |
 | POST | `/v1/flows/{flowId}/submissions` | Submit for review |
 | POST | `/v1/flows/{flowId}/reviews` | Approve or request changes |
-| GET | `/v1/flows/{flowId}/export` | Export an approved flow (`flow-model` v1) |
+| GET | `/v1/flows/{flowId}/export` | Export an approved flow (`flow-model`) |
 
 ```bash
 npm install
 npm run typecheck && npm test && npm run build
 npm run dev   # PORT defaults to 3002
 ```
+
+A visual authoring/editor UI and immutable revision history are not yet implemented.
 
 ## License
 To be decided before public distribution.

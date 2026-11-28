@@ -85,6 +85,53 @@ export interface FlowModelV1 {
 
 export type ValidationIssue = { path: string; message: string };
 
+type MaybePromise<T> = T | Promise<T>;
+
+/** Storage contract shared by the in-memory store and PostgreSQL; implementations may be sync or async. */
+export interface WireflowRepository {
+  import(input: WireflowInput): MaybePromise<WireflowDocument>;
+  get(flowId: string): MaybePromise<WireflowDocument | undefined>;
+  submit(flowId: string): MaybePromise<WireflowDocument | undefined>;
+  review(flowId: string, reviewerId: string, decision: ReviewDecision, comment?: string): MaybePromise<FlowReviewRecord | undefined>;
+  /** Published flow-model snapshot, or undefined unless the current version is approved. */
+  export(flowId: string): MaybePromise<FlowModelV1 | undefined>;
+}
+
+/** Applies import defaults: origin product_requirement, edge kind primary. */
+export function createWireflowDocument(input: WireflowInput, now = new Date().toISOString()): WireflowDocument {
+  return {
+    flowId: randomUUID(),
+    version: 1,
+    ...input,
+    nodes: input.nodes.map((node) => ({ ...node, origin: node.origin ?? "product_requirement" })),
+    edges: input.edges.map((edge) => ({
+      ...edge,
+      kind: edge.kind ?? "primary",
+      origin: edge.origin ?? "product_requirement"
+    })),
+    reviewStatus: "draft",
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+/** Builds the flow-model contract document for an approved flow and its approving review. */
+export function toFlowModel(flow: WireflowDocument, approval: FlowReviewRecord): FlowModelV1 {
+  return {
+    contractVersion: "1.1",
+    sourceSystem: "wireflow-review",
+    flowId: flow.flowId,
+    flowVersion: flow.version,
+    applicationId: flow.applicationId,
+    title: flow.title,
+    ...(flow.description === undefined ? {} : { description: flow.description }),
+    approval: { reviewId: approval.reviewId, reviewerId: approval.reviewerId, approvedAt: approval.reviewedAt },
+    nodes: flow.nodes.map(({ metadata: _metadata, ...node }) => node),
+    edges: flow.edges,
+    exportedAt: new Date().toISOString()
+  };
+}
+
 export function validateWireflow(input: WireflowInput): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   if (!input.applicationId.trim()) issues.push({ path: "applicationId", message: "applicationId is required" });
@@ -110,26 +157,12 @@ export function validateWireflow(input: WireflowInput): ValidationIssue[] {
   return issues;
 }
 
-export class WireflowStore {
+export class WireflowStore implements WireflowRepository {
   private readonly flows = new Map<string, WireflowDocument>();
   private readonly reviews: FlowReviewRecord[] = [];
 
   import(input: WireflowInput): WireflowDocument {
-    const now = new Date().toISOString();
-    const flow: WireflowDocument = {
-      flowId: randomUUID(),
-      version: 1,
-      ...input,
-      nodes: input.nodes.map((node) => ({ ...node, origin: node.origin ?? "product_requirement" })),
-      edges: input.edges.map((edge) => ({
-        ...edge,
-        kind: edge.kind ?? "primary",
-        origin: edge.origin ?? "product_requirement"
-      })),
-      reviewStatus: "draft",
-      createdAt: now,
-      updatedAt: now
-    };
+    const flow = createWireflowDocument(input);
     this.flows.set(flow.flowId, flow);
     return flow;
   }
@@ -171,18 +204,6 @@ export class WireflowStore {
       .filter((review) => review.flowId === flowId && review.flowVersion === flow.version && review.decision === "approved")
       .at(-1);
     if (!approval) return undefined;
-    return {
-      contractVersion: "1.1",
-      sourceSystem: "wireflow-review",
-      flowId: flow.flowId,
-      flowVersion: flow.version,
-      applicationId: flow.applicationId,
-      title: flow.title,
-      ...(flow.description === undefined ? {} : { description: flow.description }),
-      approval: { reviewId: approval.reviewId, reviewerId: approval.reviewerId, approvedAt: approval.reviewedAt },
-      nodes: flow.nodes.map(({ metadata: _metadata, ...node }) => node),
-      edges: flow.edges,
-      exportedAt: new Date().toISOString()
-    };
+    return toFlowModel(flow, approval);
   }
 }

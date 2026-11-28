@@ -1,5 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
-import { validateWireflow, WireflowStore, type ReviewDecision, type WireflowInput } from "../domain/wireflow.js";
+import {
+  validateWireflow, WireflowStore, type ReviewDecision, type WireflowInput, type WireflowRepository
+} from "../domain/wireflow.js";
 
 const originSchema = { type: "string", enum: ["product_requirement", "ai_suggestion", "open_question", "discovered"] } as const;
 
@@ -74,7 +76,7 @@ const reviewSchema = {
   }
 } as const;
 
-export function buildApp(store = new WireflowStore()): FastifyInstance {
+export function buildApp(store: WireflowRepository = new WireflowStore()): FastifyInstance {
   const app = Fastify({
     logger: true,
     // Fastify strips properties not allowed by `additionalProperties: false` by default; reject them instead
@@ -87,17 +89,17 @@ export function buildApp(store = new WireflowStore()): FastifyInstance {
   app.post<{ Body: WireflowInput }>("/v1/flows/import", { schema: { body: importSchema } }, async (request, reply) => {
     const issues = validateWireflow(request.body);
     if (issues.length) return reply.code(422).send({ error: "invalid_wireflow", issues });
-    return reply.code(201).send(store.import(request.body));
+    return reply.code(201).send(await store.import(request.body));
   });
 
   app.get<{ Params: { flowId: string } }>("/v1/flows/:flowId", async (request, reply) => {
-    const flow = store.get(request.params.flowId);
+    const flow = await store.get(request.params.flowId);
     if (!flow) return reply.code(404).send({ error: "flow_not_found" });
     return flow;
   });
 
   app.post<{ Params: { flowId: string } }>("/v1/flows/:flowId/submissions", async (request, reply) => {
-    const flow = store.submit(request.params.flowId);
+    const flow = await store.submit(request.params.flowId);
     if (!flow) return reply.code(409).send({ error: "flow_cannot_be_submitted" });
     return flow;
   });
@@ -107,7 +109,7 @@ export function buildApp(store = new WireflowStore()): FastifyInstance {
     { schema: { body: reviewSchema } },
     async (request, reply) => {
       const { reviewerId, decision, comment } = request.body;
-      const review = store.review(request.params.flowId, reviewerId, decision, comment);
+      const review = await store.review(request.params.flowId, reviewerId, decision, comment);
       if (!review) return reply.code(409).send({ error: "flow_not_in_review" });
       return reply.code(201).send(review);
     }
@@ -115,8 +117,8 @@ export function buildApp(store = new WireflowStore()): FastifyInstance {
 
   // Publishes contracts/flow-model.v1.schema.json. Only approved flows are exportable.
   app.get<{ Params: { flowId: string } }>("/v1/flows/:flowId/export", async (request, reply) => {
-    if (!store.get(request.params.flowId)) return reply.code(404).send({ error: "flow_not_found" });
-    const model = store.export(request.params.flowId);
+    if (!(await store.get(request.params.flowId))) return reply.code(404).send({ error: "flow_not_found" });
+    const model = await store.export(request.params.flowId);
     if (!model) return reply.code(409).send({ error: "flow_not_approved" });
     return model;
   });
