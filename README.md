@@ -21,23 +21,33 @@ Wireflow Review is a planning/review tool. It does not own runtime discovery ses
 ## Upstream reference
 The original XU Wireflow Review skill and release assets are maintained at [JeongK7998/wireflow-review](https://github.com/JeongK7998/wireflow-review). This repository is the separate development home for the popark05 toolchain; upstream source/assets have not been copied wholesale.
 
-## Current implementation status
-- Fastify API for importing, retrieving, submitting, and reviewing wireflows.
-- Domain validation for node and edge identity and graph references.
-- In-memory repository for local development and tests.
-- Optional PostgreSQL persistence when `DATABASE_URL` is configured.
-- Immutable revision snapshots, optimistic concurrency via `expectedVersion`, and revision lookup/list APIs.
-- Browser based visual wireflow editor at `/editor`, with draggable nodes, editable screen/decision/external steps, labeled connections, and persistence through imports/revisions.
+## Status
+API for importing and validating a wireflow graph, keeping immutable revisions, submitting it, recording a review decision, and exporting approved flows as the `flow-model` contract (1.1).
 
-Revision API:
-- `POST /v1/flows/:flowId/revisions` creates the next revision. The request includes `expectedVersion`, `title`, `nodes`, `edges`, and optional `description`.
-- `GET /v1/flows/:flowId/revisions` lists revision metadata and snapshots.
-- `GET /v1/flows/:flowId/revisions/:version` retrieves one immutable snapshot.
-- Creating a revision resets review status to `draft`; it is rejected while the flow is `in_review` or when `expectedVersion` is stale.
+- Contract: [`contracts/flow-model.v1.schema.json`](contracts/flow-model.v1.schema.json)
+- Design decisions (Korean): [`docs/architecture/flow-contract.md`](docs/architecture/flow-contract.md)
+- Storage: in-memory by default; PostgreSQL when `DATABASE_URL` is configured (tables and indexes are created at startup).
 
-PostgreSQL stores snapshots in `wireflow_revisions` with a unique `(flow_id, version)` constraint. Existing flows are backfilled with their current document as the initial available revision at startup. This cannot reconstruct historical versions that predate the revision table.
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/v1/flows/import` | Import a flow graph (optional `origin`, `kind`, `discoveryRef`) |
+| GET | `/v1/flows/{flowId}` | Read the current flow |
+| POST | `/v1/flows/{flowId}/revisions` | Create the next revision (`expectedVersion`, `title`, `nodes`, `edges`, optional `description`) |
+| GET | `/v1/flows/{flowId}/revisions` | List immutable revision snapshots |
+| GET | `/v1/flows/{flowId}/revisions/{version}` | Read one revision snapshot |
+| POST | `/v1/flows/{flowId}/submissions` | Submit for review |
+| POST | `/v1/flows/{flowId}/reviews` | Approve or request changes (bound to the current version) |
+| GET | `/v1/flows/{flowId}/export` | Export the approved current version (`flow-model`) |
 
-The editor is a focused first version: load an existing flow by ID, compose and arrange its graph, and save new immutable revisions. Reverse Screen import/compare integration is not yet implemented.
+Creating a revision resets review status to `draft`; it is rejected while the flow is `in_review` or when `expectedVersion` is stale. Export publishes only an approval of the current version, so a new revision is not exported until it is reviewed again. PostgreSQL stores snapshots in `wireflow_revisions` with a unique `(flow_id, version)` constraint; existing flows are backfilled with their current document as the initial available revision at startup, which cannot reconstruct versions that predate the table.
+
+```bash
+npm install
+npm run typecheck && npm test && npm run build
+npm run dev   # PORT defaults to 3002
+```
+
+A browser-based visual editor is served at `/editor`: open a flow by ID, add screen/decision/external steps, drag to arrange (positions are kept in node metadata), connect steps with labels and triggers, and save — the first save imports, later saves create immutable revisions. Reverse Screen references and origins of imported nodes are shown read-only.
 
 ## License
 To be decided before public distribution.

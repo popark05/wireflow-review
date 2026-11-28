@@ -2,22 +2,40 @@ import { randomUUID } from "node:crypto";
 
 export type FlowNodeType = "screen" | "decision" | "external";
 export type ReviewStatus = "draft" | "in_review" | "approved" | "changes_requested";
+export type ReviewDecision = "approved" | "changes_requested";
+/** discovered: observed in the running app by Reverse Screen (flow contract 1.1). */
+export type ElementOrigin = "product_requirement" | "ai_suggestion" | "open_question" | "discovered";
+export type EdgeKind = "primary" | "back" | "cancel" | "retry" | "empty" | "failure";
+
+/** Reference to a runtime fact discovered by Reverse Screen. IDs are copied verbatim from Discovery Events. */
+export interface ReverseScreenRef {
+  sourceSystem: "reverse-screen";
+  screenId?: string;
+  stateId?: string;
+  transitionId?: string;
+  sessionId?: string;
+}
 
 export interface FlowNode {
   nodeId: string;
   type: FlowNodeType;
   title: string;
-  screenId?: string;
-  stateId?: string;
+  origin: ElementOrigin;
+  discoveryRef?: ReverseScreenRef;
   metadata?: Record<string, unknown>;
 }
+
 export interface FlowEdge {
   edgeId: string;
   fromNodeId: string;
   toNodeId: string;
+  kind: EdgeKind;
   label?: string;
   trigger?: string;
+  origin: ElementOrigin;
+  discoveryRef?: ReverseScreenRef;
 }
+
 export interface WireflowDocument {
   flowId: string;
   version: number;
@@ -30,13 +48,20 @@ export interface WireflowDocument {
   createdAt: string;
   updatedAt: string;
 }
+
+/** Import body: origin and kind are optional and default to product_requirement / primary. */
 export interface WireflowInput {
   applicationId: string;
   title: string;
   description?: string;
-  nodes: FlowNode[];
-  edges: FlowEdge[];
+  nodes: Array<Omit<FlowNode, "origin"> & { origin?: ElementOrigin }>;
+  edges: Array<Omit<FlowEdge, "origin" | "kind"> & { origin?: ElementOrigin; kind?: EdgeKind }>;
 }
+
+/** Graph content of a new revision; the application stays fixed. */
+export type WireflowRevisionInput = Omit<WireflowInput, "applicationId">;
+
+/** Immutable snapshot of a flow version. */
 export interface FlowRevision {
   revisionId: string;
   flowId: string;
@@ -44,33 +69,97 @@ export interface FlowRevision {
   document: WireflowDocument;
   createdAt: string;
 }
+
 export interface FlowReviewRecord {
   reviewId: string;
   flowId: string;
+  flowVersion: number;
   reviewerId: string;
-  decision: "approved" | "changes_requested";
+  decision: ReviewDecision;
   comment?: string;
   reviewedAt: string;
 }
+
+/** Wire format defined by contracts/flow-model.v1.schema.json. */
+export interface FlowModelV1 {
+  contractVersion: "1.1";
+  sourceSystem: "wireflow-review";
+  flowId: string;
+  flowVersion: number;
+  applicationId: string;
+  title: string;
+  description?: string;
+  approval: { reviewId: string; reviewerId: string; approvedAt: string };
+  nodes: Array<Omit<FlowNode, "metadata">>;
+  edges: FlowEdge[];
+  exportedAt: string;
+}
+
 export type ValidationIssue = { path: string; message: string };
 
+type MaybePromise<T> = T | Promise<T>;
+
+/** Storage contract shared by the in-memory store and PostgreSQL; implementations may be sync or async. */
 export interface WireflowRepository {
-  import(input: WireflowInput): WireflowDocument | Promise<WireflowDocument>;
-  get(id: string): WireflowDocument | undefined | Promise<WireflowDocument | undefined>;
-  submit(id: string): WireflowDocument | undefined | Promise<WireflowDocument | undefined>;
-  review(
-    id: string,
-    reviewerId: string,
-    decision: "approved" | "changes_requested",
-    comment?: string
-  ): FlowReviewRecord | undefined | Promise<FlowReviewRecord | undefined>;
-  createRevision(
-    id: string,
-    input: Omit<WireflowInput, "applicationId">,
-    expectedVersion: number
-  ): FlowRevision | undefined | Promise<FlowRevision | undefined>;
-  listRevisions(id: string): FlowRevision[] | Promise<FlowRevision[]>;
-  getRevision(id: string, version: number): FlowRevision | undefined | Promise<FlowRevision | undefined>;
+  import(input: WireflowInput): MaybePromise<WireflowDocument>;
+  get(flowId: string): MaybePromise<WireflowDocument | undefined>;
+  submit(flowId: string): MaybePromise<WireflowDocument | undefined>;
+  review(flowId: string, reviewerId: string, decision: ReviewDecision, comment?: string): MaybePromise<FlowReviewRecord | undefined>;
+  /** Published flow-model snapshot, or undefined unless the current version is approved. */
+  export(flowId: string): MaybePromise<FlowModelV1 | undefined>;
+  /** Appends version expectedVersion+1 as a new draft; undefined on a stale version or while in review. */
+  createRevision(flowId: string, input: WireflowRevisionInput, expectedVersion: number): MaybePromise<FlowRevision | undefined>;
+  listRevisions(flowId: string): MaybePromise<FlowRevision[]>;
+  getRevision(flowId: string, version: number): MaybePromise<FlowRevision | undefined>;
+}
+
+function withGraphDefaults(input: Pick<WireflowInput, "nodes" | "edges">): Pick<WireflowDocument, "nodes" | "edges"> {
+  return {
+    nodes: input.nodes.map((node) => ({ ...node, origin: node.origin ?? "product_requirement" })),
+    edges: input.edges.map((edge) => ({ ...edge, kind: edge.kind ?? "primary", origin: edge.origin ?? "product_requirement" }))
+  };
+}
+
+/** Applies import defaults: origin product_requirement, edge kind primary. */
+export function createWireflowDocument(input: WireflowInput, now = new Date().toISOString()): WireflowDocument {
+  return {
+    flowId: randomUUID(),
+    version: 1,
+    ...structuredClone(input),
+    ...withGraphDefaults(structuredClone(input)),
+    reviewStatus: "draft",
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+/** Next version of a flow: replaces graph content, resets review to draft. */
+export function createRevisionDocument(current: WireflowDocument, input: WireflowRevisionInput, now = new Date().toISOString()): WireflowDocument {
+  return {
+    ...current,
+    ...structuredClone(input),
+    ...withGraphDefaults(structuredClone(input)),
+    version: current.version + 1,
+    reviewStatus: "draft",
+    updatedAt: now
+  };
+}
+
+/** Builds the flow-model contract document for an approved flow and its approving review. */
+export function toFlowModel(flow: WireflowDocument, approval: FlowReviewRecord): FlowModelV1 {
+  return {
+    contractVersion: "1.1",
+    sourceSystem: "wireflow-review",
+    flowId: flow.flowId,
+    flowVersion: flow.version,
+    applicationId: flow.applicationId,
+    title: flow.title,
+    ...(flow.description === undefined ? {} : { description: flow.description }),
+    approval: { reviewId: approval.reviewId, reviewerId: approval.reviewerId, approvedAt: approval.reviewedAt },
+    nodes: flow.nodes.map(({ metadata: _metadata, ...node }) => node),
+    edges: flow.edges,
+    exportedAt: new Date().toISOString()
+  };
 }
 
 export function validateWireflow(input: WireflowInput): ValidationIssue[] {
@@ -78,20 +167,22 @@ export function validateWireflow(input: WireflowInput): ValidationIssue[] {
   if (!input.applicationId.trim()) issues.push({ path: "applicationId", message: "applicationId is required" });
   if (!input.title.trim()) issues.push({ path: "title", message: "title is required" });
   if (input.nodes.length === 0) issues.push({ path: "nodes", message: "at least one node is required" });
-  const ids = new Set<string>();
-  for (const [i, node] of input.nodes.entries()) {
-    if (ids.has(node.nodeId)) issues.push({ path: `nodes[${i}].nodeId`, message: "nodeId must be unique" });
-    ids.add(node.nodeId);
+
+  const nodeIds = new Set<string>();
+  for (const [index, node] of input.nodes.entries()) {
+    if (nodeIds.has(node.nodeId)) issues.push({ path: `nodes[${index}].nodeId`, message: "nodeId must be unique" });
+    nodeIds.add(node.nodeId);
   }
   if (!input.nodes.some((node) => node.type === "screen")) {
     issues.push({ path: "nodes", message: "at least one screen node is required" });
   }
+
   const edgeIds = new Set<string>();
-  for (const [i, edge] of input.edges.entries()) {
-    if (edgeIds.has(edge.edgeId)) issues.push({ path: `edges[${i}].edgeId`, message: "edgeId must be unique" });
+  for (const [index, edge] of input.edges.entries()) {
+    if (edgeIds.has(edge.edgeId)) issues.push({ path: `edges[${index}].edgeId`, message: "edgeId must be unique" });
     edgeIds.add(edge.edgeId);
-    if (!ids.has(edge.fromNodeId)) issues.push({ path: `edges[${i}].fromNodeId`, message: "source node does not exist" });
-    if (!ids.has(edge.toNodeId)) issues.push({ path: `edges[${i}].toNodeId`, message: "target node does not exist" });
+    if (!nodeIds.has(edge.fromNodeId)) issues.push({ path: `edges[${index}].fromNodeId`, message: "source node does not exist" });
+    if (!nodeIds.has(edge.toNodeId)) issues.push({ path: `edges[${index}].toNodeId`, message: "target node does not exist" });
   }
   return issues;
 }
@@ -104,77 +195,72 @@ export class WireflowStore implements WireflowRepository {
   private readonly reviews: FlowReviewRecord[] = [];
 
   import(input: WireflowInput): WireflowDocument {
-    const now = new Date().toISOString();
-    const flow: WireflowDocument = {
-      flowId: randomUUID(), version: 1, ...clone(input),
-      reviewStatus: "draft", createdAt: now, updatedAt: now
-    };
+    const flow = createWireflowDocument(input);
     this.flows.set(flow.flowId, clone(flow));
     this.revisions.set(flow.flowId, [{
-      revisionId: randomUUID(), flowId: flow.flowId, version: 1,
-      document: clone(flow), createdAt: now
+      revisionId: randomUUID(), flowId: flow.flowId, version: 1, document: clone(flow), createdAt: flow.createdAt
     }]);
     return clone(flow);
   }
 
-  get(id: string): WireflowDocument | undefined {
-    const flow = this.flows.get(id);
+  get(flowId: string): WireflowDocument | undefined {
+    const flow = this.flows.get(flowId);
     return flow ? clone(flow) : undefined;
   }
 
-  submit(id: string): WireflowDocument | undefined {
-    const flow = this.flows.get(id);
-    if (!flow || !["draft", "changes_requested"].includes(flow.reviewStatus)) return undefined;
-    const updated = { ...flow, reviewStatus: "in_review" as const, updatedAt: new Date().toISOString() };
-    this.flows.set(id, updated);
+  submit(flowId: string): WireflowDocument | undefined {
+    const flow = this.flows.get(flowId);
+    if (!flow || (flow.reviewStatus !== "draft" && flow.reviewStatus !== "changes_requested")) return undefined;
+    const updated: WireflowDocument = { ...flow, reviewStatus: "in_review", updatedAt: new Date().toISOString() };
+    this.flows.set(flowId, updated);
     return clone(updated);
   }
 
-  review(
-    id: string,
-    reviewerId: string,
-    decision: "approved" | "changes_requested",
-    comment?: string
-  ): FlowReviewRecord | undefined {
-    const flow = this.flows.get(id);
+  review(flowId: string, reviewerId: string, decision: ReviewDecision, comment?: string): FlowReviewRecord | undefined {
+    const flow = this.flows.get(flowId);
     if (!flow || flow.reviewStatus !== "in_review") return undefined;
     const record: FlowReviewRecord = {
-      reviewId: randomUUID(), flowId: id, reviewerId, decision,
+      reviewId: randomUUID(),
+      flowId,
+      flowVersion: flow.version,
+      reviewerId,
+      decision,
       ...(comment === undefined ? {} : { comment }),
       reviewedAt: new Date().toISOString()
     };
     this.reviews.push(record);
-    this.flows.set(id, { ...flow, reviewStatus: decision, updatedAt: record.reviewedAt });
+    this.flows.set(flowId, { ...flow, reviewStatus: decision, updatedAt: record.reviewedAt });
     return clone(record);
   }
 
-  createRevision(
-    id: string,
-    input: Omit<WireflowInput, "applicationId">,
-    expectedVersion: number
-  ): FlowRevision | undefined {
-    const current = this.flows.get(id);
+  export(flowId: string): FlowModelV1 | undefined {
+    const flow = this.flows.get(flowId);
+    if (!flow || flow.reviewStatus !== "approved") return undefined;
+    const approval = this.reviews
+      .filter((review) => review.flowId === flowId && review.flowVersion === flow.version && review.decision === "approved")
+      .at(-1);
+    if (!approval) return undefined;
+    return toFlowModel(clone(flow), approval);
+  }
+
+  createRevision(flowId: string, input: WireflowRevisionInput, expectedVersion: number): FlowRevision | undefined {
+    const current = this.flows.get(flowId);
     if (!current || current.version !== expectedVersion || current.reviewStatus === "in_review") return undefined;
-    const createdAt = new Date().toISOString();
-    const document: WireflowDocument = {
-      ...current, ...clone(input), version: current.version + 1,
-      reviewStatus: "draft", updatedAt: createdAt
-    };
+    const document = createRevisionDocument(current, input);
     const revision: FlowRevision = {
-      revisionId: randomUUID(), flowId: id, version: document.version,
-      document: clone(document), createdAt
+      revisionId: randomUUID(), flowId, version: document.version, document: clone(document), createdAt: document.updatedAt
     };
-    this.flows.set(id, clone(document));
-    this.revisions.get(id)!.push(clone(revision));
+    this.flows.set(flowId, clone(document));
+    this.revisions.get(flowId)!.push(clone(revision));
     return clone(revision);
   }
 
-  listRevisions(id: string): FlowRevision[] {
-    return clone(this.revisions.get(id) ?? []);
+  listRevisions(flowId: string): FlowRevision[] {
+    return clone(this.revisions.get(flowId) ?? []);
   }
 
-  getRevision(id: string, version: number): FlowRevision | undefined {
-    const revision = this.revisions.get(id)?.find((item) => item.version === version);
+  getRevision(flowId: string, version: number): FlowRevision | undefined {
+    const revision = this.revisions.get(flowId)?.find((item) => item.version === version);
     return revision ? clone(revision) : undefined;
   }
 }

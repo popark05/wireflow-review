@@ -6,8 +6,8 @@ const validFlow = {
   applicationId: "demo-app",
   title: "Sign-in flow",
   nodes: [
-    { nodeId: "home", type: "screen", title: "Home", screenId: "screen.home" },
-    { nodeId: "login", type: "screen", title: "Login", screenId: "screen.login" }
+    { nodeId: "home", type: "screen", title: "Home" },
+    { nodeId: "login", type: "screen", title: "Login" }
   ],
   edges: [
     { edgeId: "home-login", fromNodeId: "home", toNodeId: "login", label: "Log in", trigger: "tap" }
@@ -136,5 +136,17 @@ test("rejects a graph without a screen node", async () => {
     }
   });
   assert.equal(response.statusCode, 422);
+  await app.close();
+});
+
+test("rejects unknown fields instead of silently dropping them", async () => {
+  const app = buildApp();
+  const typo = await app.inject({
+    method: "POST", url: "/v1/flows/import",
+    payload: { ...validFlow, nodes: [{ nodeId: "home", type: "screen", title: "Home", screenID: "typo" }], edges: [] }
+  });
+  assert.equal(typo.statusCode, 400);
+  const extraTopLevel = await app.inject({ method: "POST", url: "/v1/flows/import", payload: { ...validFlow, tasks: [] } });
+  assert.equal(extraTopLevel.statusCode, 400);
   await app.close();
 });
