@@ -80,6 +80,24 @@ test("creates sequential immutable revisions and rejects stale expected versions
   await app.close();
 });
 
+test("concurrent revision writes with the same expected version cannot both win", async () => {
+  const app = buildApp();
+  const imported = await app.inject({ method: "POST", url: "/v1/flows/import", payload: validFlow });
+  const flowId = imported.json().flowId;
+  const payload = {
+    expectedVersion: 1, title: "Concurrent revision",
+    nodes: validFlow.nodes, edges: validFlow.edges
+  };
+  const results = await Promise.all([
+    app.inject({ method: "POST", url: `/v1/flows/${flowId}/revisions`, payload }),
+    app.inject({ method: "POST", url: `/v1/flows/${flowId}/revisions`, payload })
+  ]);
+  assert.deepEqual(results.map((result) => result.statusCode).sort(), [201, 409]);
+  const current = await app.inject({ method: "GET", url: `/v1/flows/${flowId}` });
+  assert.equal(current.json().version, 2);
+  await app.close();
+});
+
 test("does not allow revision creation while a flow is in review", async () => {
   const app = buildApp();
   const imported = await app.inject({ method: "POST", url: "/v1/flows/import", payload: validFlow });
