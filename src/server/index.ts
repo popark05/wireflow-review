@@ -9,12 +9,11 @@ const pool = process.env.DATABASE_URL
   : undefined;
 const repository = pool ? new PostgresWireflowStore(pool) : undefined;
 
-if (repository) await repository.initialize();
-
 const app = buildApp(repository);
 if (pool) app.addHook("onClose", async () => { await pool.end(); });
 
 try {
+  if (repository) await repository.initialize();
   await app.listen({ port, host });
 } catch (error) {
   app.log.error(error);
